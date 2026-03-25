@@ -1,0 +1,1 @@
+# seg2gis-buildings
