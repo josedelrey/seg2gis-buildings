@@ -1,6 +1,8 @@
 import os
 import csv
 
+import random
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import segmentation_models_pytorch as smp
@@ -19,13 +21,41 @@ VAL_IMG_DIR = "data/tiles_256/val/images"
 VAL_MASK_DIR = "data/tiles_256/val/masks"
 
 BATCH_SIZE = 8
-EPOCHS = 5
+EPOCHS = 10
 LR = 1e-4
-USE_AUGMENTATION = True
+USE_AUGMENTATION = False
+ARCHITECTURE = "unet"
+ENCODER = "resnet34"
 
-RUN_NAME = "unet_r34_e5"
+RUN_NAME = "unet_r34_256_noaug_e10"
 MODEL_PATH = f"models/{RUN_NAME}.pth"
-LOG_PATH = "experiments/experiments.csv"
+LOG_PATH = "outputs/experiments.csv"
+CSV_HEADER = [
+    "run_name",
+    "architecture",
+    "encoder",
+    "augmentation",
+    "epochs",
+    "batch_size",
+    "lr",
+    "best_epoch",
+    "best_val_dice",
+    "best_val_loss",
+    "notes",
+]
+
+SEED = 42
+
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    # deterministic behavior (slightly slower but stable)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 def dice_score(logits, masks, threshold=0.5):
@@ -73,8 +103,10 @@ def get_train_transform():
 
 
 def main():
+    set_seed(SEED)
+
     print("Device:", DEVICE)
-    print("Augmentation:", USE_AUGMENTATION)
+    print("Experiment:", RUN_NAME)
 
     train_transform = get_train_transform()
 
@@ -107,14 +139,26 @@ def main():
     )
 
     model = smp.Unet(
-        encoder_name="resnet34",
+        encoder_name=ENCODER,
         encoder_weights="imagenet",
         in_channels=3,
         classes=1,
     ).to(DEVICE)
 
-    loss_fn = smp.losses.DiceLoss(mode="binary")
+    dice_loss = smp.losses.DiceLoss(mode="binary")
+    bce_loss = torch.nn.BCEWithLogitsLoss()
+
+    def loss_fn(logits, masks):
+        return dice_loss(logits, masks) + bce_loss(logits, masks)
+    
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="max",
+        factor=0.5,
+        patience=2,
+    )
 
     best_val_dice = 0.0
     best_val_loss = None
@@ -178,6 +222,11 @@ def main():
         val_loss /= len(val_loader)
         val_dice /= len(val_loader)
 
+        # ---------------- SCHEDULER ----------------
+        scheduler.step(val_dice)
+        current_lr = optimizer.param_groups[0]["lr"]
+        print(f"Current LR: {current_lr:.6f}")
+
         # ---------------- SUMMARY ----------------
         print(
             f"Epoch {epoch+1}/{EPOCHS} | "
@@ -195,43 +244,40 @@ def main():
             print("Saved best model.")
 
     # ---------------- EXPERIMENT LOG ----------------
-    os.makedirs("experiments", exist_ok=True)
+    os.makedirs("outputs", exist_ok=True)
 
     file_exists = os.path.exists(LOG_PATH)
+
+    if file_exists:
+        with open(LOG_PATH, "r", newline="") as f:
+            reader = csv.reader(f)
+            existing_header = next(reader, None)
+
+        if existing_header != CSV_HEADER:
+            raise ValueError(
+                f"CSV header mismatch in {LOG_PATH}.\n"
+                f"Expected: {CSV_HEADER}\n"
+                f"Found:    {existing_header}\n"
+                "Delete the file or update the header before logging this experiment."
+            )
 
     with open(LOG_PATH, "a", newline="") as f:
         writer = csv.writer(f)
 
         if not file_exists:
-            writer.writerow([
-                "run_name",
-                "model",
-                "tile_size",
-                "augmentation",
-                "epochs",
-                "batch_size",
-                "lr",
-                "loss",
-                "best_epoch",
-                "best_val_dice",
-                "best_val_loss",
-                "model_path",
-                "notes",
-            ])
+            writer.writerow(CSV_HEADER)
 
         writer.writerow([
             RUN_NAME,
-            "UNet-ResNet34",
-            256,
+            ARCHITECTURE,
+            ENCODER,
             USE_AUGMENTATION,
             EPOCHS,
             BATCH_SIZE,
             LR,
-            "Dice",
             best_epoch,
             round(best_val_dice, 4),
             round(best_val_loss, 4),
-            MODEL_PATH,
             "",
         ])
 
