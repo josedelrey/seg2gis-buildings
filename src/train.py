@@ -1,6 +1,6 @@
 import os
 import csv
-
+import argparse
 import random
 import numpy as np
 import torch
@@ -20,16 +20,8 @@ TRAIN_MASK_DIR = "data/tiles_256/train/masks"
 VAL_IMG_DIR = "data/tiles_256/val/images"
 VAL_MASK_DIR = "data/tiles_256/val/masks"
 
-BATCH_SIZE = 8
-EPOCHS = 10
-LR = 1e-4
-USE_AUGMENTATION = False
-ARCHITECTURE = "unet"
-ENCODER = "resnet34"
-
-RUN_NAME = "unet_r34_256_noaug_e10"
-MODEL_PATH = f"models/{RUN_NAME}.pth"
 LOG_PATH = "outputs/experiments.csv"
+
 CSV_HEADER = [
     "run_name",
     "architecture",
@@ -44,7 +36,22 @@ CSV_HEADER = [
     "notes",
 ]
 
-SEED = 42
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--run_name", type=str, required=True)
+    parser.add_argument("--architecture", type=str, default="unet")
+    parser.add_argument("--encoder", type=str, required=True)
+
+    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--use_augmentation", action="store_true")
+
+    parser.add_argument("--seed", type=int, default=42)
+
+    return parser.parse_args()
 
 
 def set_seed(seed):
@@ -53,7 +60,6 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-    # deterministic behavior (slightly slower but stable)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
@@ -68,14 +74,13 @@ def dice_score(logits, masks, threshold=0.5):
     return (2 * intersection + 1e-7) / (total + 1e-7)
 
 
-def get_train_transform():
-    if not USE_AUGMENTATION:
+def get_train_transform(use_augmentation):
+    if not use_augmentation:
         return None
 
     return A.Compose([
         A.HorizontalFlip(p=0.5),
         A.VerticalFlip(p=0.5),
-
         A.RandomRotate90(p=0.5),
 
         A.ShiftScaleRotate(
@@ -102,148 +107,18 @@ def get_train_transform():
     ])
 
 
-def main():
-    set_seed(SEED)
-
-    print("Device:", DEVICE)
-    print("Experiment:", RUN_NAME)
-
-    train_transform = get_train_transform()
-
-    train_dataset = BuildingDataset(
-        TRAIN_IMG_DIR,
-        TRAIN_MASK_DIR,
-        transform=train_transform,
-    )
-
-    val_dataset = BuildingDataset(
-        VAL_IMG_DIR,
-        VAL_MASK_DIR,
-        transform=None,
-    )
-
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=True,
-        num_workers=2,
-        pin_memory=True,
-    )
-
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=False,
-        num_workers=2,
-        pin_memory=True,
-    )
-
-    model = smp.Unet(
-        encoder_name=ENCODER,
-        encoder_weights="imagenet",
-        in_channels=3,
-        classes=1,
-    ).to(DEVICE)
-
-    dice_loss = smp.losses.DiceLoss(mode="binary")
-    bce_loss = torch.nn.BCEWithLogitsLoss()
-
-    def loss_fn(logits, masks):
-        return dice_loss(logits, masks) + bce_loss(logits, masks)
-    
-    optimizer = torch.optim.Adam(model.parameters(), lr=LR)
-
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode="max",
-        factor=0.5,
-        patience=2,
-    )
-
-    best_val_dice = 0.0
-    best_val_loss = None
-    best_epoch = 0
-
-    for epoch in range(EPOCHS):
-        print(f"\n=== Epoch {epoch+1}/{EPOCHS} ===")
-
-        # ---------------- TRAIN ----------------
-        model.train()
-        train_loss = 0.0
-
-        train_pbar = tqdm(train_loader, desc="Train", leave=False)
-
-        for imgs, masks in train_pbar:
-            imgs = imgs.to(DEVICE)
-            masks = masks.to(DEVICE)
-
-            logits = model(imgs)
-            loss = loss_fn(logits, masks)
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            train_loss += loss.item()
-
-            # update progress bar
-            train_pbar.set_postfix({
-                "batch_loss": f"{loss.item():.4f}",
-                "avg_loss": f"{train_loss / (train_pbar.n + 1):.4f}"
-            })
-
-        train_loss /= len(train_loader)
-
-        # ---------------- VALIDATION ----------------
-        model.eval()
-        val_loss = 0.0
-        val_dice = 0.0
-
-        val_pbar = tqdm(val_loader, desc="Val", leave=False)
-
-        with torch.no_grad():
-            for imgs, masks in val_pbar:
-                imgs = imgs.to(DEVICE)
-                masks = masks.to(DEVICE)
-
-                logits = model(imgs)
-                loss = loss_fn(logits, masks)
-
-                dice = dice_score(logits, masks)
-
-                val_loss += loss.item()
-                val_dice += dice.item()
-
-                val_pbar.set_postfix({
-                    "batch_loss": f"{loss.item():.4f}",
-                    "batch_dice": f"{dice.item():.4f}"
-                })
-
-        val_loss /= len(val_loader)
-        val_dice /= len(val_loader)
-
-        # ---------------- SCHEDULER ----------------
-        scheduler.step(val_dice)
-        current_lr = optimizer.param_groups[0]["lr"]
-        print(f"Current LR: {current_lr:.6f}")
-
-        # ---------------- SUMMARY ----------------
-        print(
-            f"Epoch {epoch+1}/{EPOCHS} | "
-            f"Train Loss: {train_loss:.4f} | "
-            f"Val Loss: {val_loss:.4f} | "
-            f"Val Dice: {val_dice:.4f}"
-        )
-
-        # ---------------- SAVE ----------------
-        if val_dice > best_val_dice:
-            best_val_dice = val_dice
-            best_val_loss = val_loss
-            best_epoch = epoch + 1
-            torch.save(model.state_dict(), MODEL_PATH)
-            print("Saved best model.")
-
-    # ---------------- EXPERIMENT LOG ----------------
+def log_experiment(
+    run_name,
+    architecture,
+    encoder,
+    use_augmentation,
+    epochs,
+    batch_size,
+    lr,
+    best_epoch,
+    best_val_dice,
+    best_val_loss,
+):
     os.makedirs("outputs", exist_ok=True)
 
     file_exists = os.path.exists(LOG_PATH)
@@ -268,20 +143,186 @@ def main():
             writer.writerow(CSV_HEADER)
 
         writer.writerow([
-            RUN_NAME,
-            ARCHITECTURE,
-            ENCODER,
-            USE_AUGMENTATION,
-            EPOCHS,
-            BATCH_SIZE,
-            LR,
+            run_name,
+            architecture,
+            encoder,
+            use_augmentation,
+            epochs,
+            batch_size,
+            lr,
             best_epoch,
             round(best_val_dice, 4),
-            round(best_val_loss, 4),
+            round(best_val_loss, 4) if best_val_loss is not None else None,
             "",
         ])
 
 
-if __name__ == "__main__":
+def main():
+    args = parse_args()
+
+    run_name = args.run_name
+    architecture = args.architecture
+    encoder = args.encoder
+    batch_size = args.batch_size
+    epochs = args.epochs
+    lr = args.lr
+    use_augmentation = args.use_augmentation
+    seed = args.seed
+
+    model_path = f"models/{run_name}.pth"
+
     os.makedirs("models", exist_ok=True)
+
+    set_seed(seed)
+
+    print("Device:", DEVICE)
+    print("Experiment:", run_name)
+
+    train_transform = get_train_transform(use_augmentation)
+
+    train_dataset = BuildingDataset(
+        TRAIN_IMG_DIR,
+        TRAIN_MASK_DIR,
+        transform=train_transform,
+    )
+
+    val_dataset = BuildingDataset(
+        VAL_IMG_DIR,
+        VAL_MASK_DIR,
+        transform=None,
+    )
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=2,
+        pin_memory=True,
+    )
+
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=2,
+        pin_memory=True,
+    )
+
+    if architecture != "unet":
+        raise ValueError(f"Unsupported architecture: {architecture}")
+
+    model = smp.Unet(
+        encoder_name=encoder,
+        encoder_weights="imagenet",
+        in_channels=3,
+        classes=1,
+    ).to(DEVICE)
+
+    dice_loss = smp.losses.DiceLoss(mode="binary")
+    bce_loss = torch.nn.BCEWithLogitsLoss()
+
+    def loss_fn(logits, masks):
+        return dice_loss(logits, masks) + bce_loss(logits, masks)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="max",
+        factor=0.5,
+        patience=2,
+    )
+
+    best_val_dice = 0.0
+    best_val_loss = None
+    best_epoch = 0
+
+    for epoch in range(epochs):
+        print(f"\n=== Epoch {epoch + 1}/{epochs} ===")
+
+        model.train()
+        train_loss = 0.0
+
+        train_pbar = tqdm(train_loader, desc="Train", leave=False)
+
+        for imgs, masks in train_pbar:
+            imgs = imgs.to(DEVICE)
+            masks = masks.to(DEVICE)
+
+            logits = model(imgs)
+            loss = loss_fn(logits, masks)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            train_loss += loss.item()
+
+            train_pbar.set_postfix({
+                "batch_loss": f"{loss.item():.4f}",
+                "avg_loss": f"{train_loss / (train_pbar.n + 1):.4f}",
+            })
+
+        train_loss /= len(train_loader)
+
+        model.eval()
+        val_loss = 0.0
+        val_dice = 0.0
+
+        val_pbar = tqdm(val_loader, desc="Val", leave=False)
+
+        with torch.no_grad():
+            for imgs, masks in val_pbar:
+                imgs = imgs.to(DEVICE)
+                masks = masks.to(DEVICE)
+
+                logits = model(imgs)
+                loss = loss_fn(logits, masks)
+                dice = dice_score(logits, masks)
+
+                val_loss += loss.item()
+                val_dice += dice.item()
+
+                val_pbar.set_postfix({
+                    "batch_loss": f"{loss.item():.4f}",
+                    "batch_dice": f"{dice.item():.4f}",
+                })
+
+        val_loss /= len(val_loader)
+        val_dice /= len(val_loader)
+
+        scheduler.step(val_dice)
+
+        current_lr = optimizer.param_groups[0]["lr"]
+        print(f"Current LR: {current_lr:.6f}")
+
+        print(
+            f"Epoch {epoch + 1}/{epochs} | "
+            f"Train Loss: {train_loss:.4f} | "
+            f"Val Loss: {val_loss:.4f} | "
+            f"Val Dice: {val_dice:.4f}"
+        )
+
+        if val_dice > best_val_dice:
+            best_val_dice = val_dice
+            best_val_loss = val_loss
+            best_epoch = epoch + 1
+            torch.save(model.state_dict(), model_path)
+            print("Saved best model.")
+
+    log_experiment(
+        run_name=run_name,
+        architecture=architecture,
+        encoder=encoder,
+        use_augmentation=use_augmentation,
+        epochs=epochs,
+        batch_size=batch_size,
+        lr=lr,
+        best_epoch=best_epoch,
+        best_val_dice=best_val_dice,
+        best_val_loss=best_val_loss,
+    )
+
+
+if __name__ == "__main__":
     main()
