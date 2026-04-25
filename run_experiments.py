@@ -35,7 +35,7 @@ experiments = [
 for exp in experiments:
     command = [
         "python",
-        "train.py",
+        "src/train.py",
         "--run_name", exp["run_name"],
         "--architecture", exp["architecture"],
         "--encoder", exp["encoder"],

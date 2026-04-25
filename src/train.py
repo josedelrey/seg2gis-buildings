@@ -83,10 +83,13 @@ def get_train_transform(use_augmentation):
         A.VerticalFlip(p=0.5),
         A.RandomRotate90(p=0.5),
 
-        A.ShiftScaleRotate(
-            shift_limit=0.0625,
-            scale_limit=0.0,
-            rotate_limit=30,
+        A.Affine(
+            translate_percent={
+                "x": (-0.0625, 0.0625),
+                "y": (-0.0625, 0.0625),
+            },
+            scale=1.0,
+            rotate=(-30, 30),
             border_mode=cv2.BORDER_CONSTANT,
             p=0.5,
         ),
