@@ -3,14 +3,41 @@ import subprocess
 
 experiments = [
     {
-        "run_name": "fpn_r50_256_aug_e30",
-        "architecture": "fpn",
+        "run_name": "unet_r34_256_strongaug_e30",
+        "architecture": "unet",
+        "encoder": "resnet34",
+        "batch_size": 8,
+        "epochs": 30,
+        "lr": 1e-4,
+        "use_augmentation": True,
+    },
+    {
+        "run_name": "unet_r50_256_strongaug_e30",
+        "architecture": "unet",
         "encoder": "resnet50",
         "batch_size": 8,
         "epochs": 30,
         "lr": 1e-4,
         "use_augmentation": True,
-    }
+    },
+    {
+        "run_name": "unet_effb3_256_strongaug_e30",
+        "architecture": "unet",
+        "encoder": "efficientnet-b3",
+        "batch_size": 8,
+        "epochs": 30,
+        "lr": 1e-4,
+        "use_augmentation": True,
+    },
+    {
+        "run_name": "unet_effb4_256_strongaug_e30",
+        "architecture": "unet",
+        "encoder": "efficientnet-b4",
+        "batch_size": 8,
+        "epochs": 30,
+        "lr": 1e-4,
+        "use_augmentation": True,
+    },
 ]
 
 

@@ -82,16 +82,29 @@ def get_train_transform(use_augmentation):
         A.VerticalFlip(p=0.5),
         A.RandomRotate90(p=0.5),
 
+        A.ShiftScaleRotate(
+            shift_limit=0.05,
+            scale_limit=0.15,
+            rotate_limit=20,
+            border_mode=0,
+            p=0.5,
+        ),
+
         A.RandomBrightnessContrast(
-            brightness_limit=0.15,
-            contrast_limit=0.15,
+            brightness_limit=0.2,
+            contrast_limit=0.2,
+            p=0.4,
+        ),
+
+        A.HueSaturationValue(
+            hue_shift_limit=10,
+            sat_shift_limit=15,
+            val_shift_limit=10,
             p=0.3,
         ),
 
-        A.RandomGamma(
-            gamma_limit=(90, 110),
-            p=0.2,
-        ),
+        A.GaussNoise(p=0.2),
+        A.MotionBlur(blur_limit=3, p=0.15),
     ])
 
 
