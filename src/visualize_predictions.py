@@ -1,7 +1,7 @@
 import os
+import argparse
 import random
 
-import cv2
 import torch
 import matplotlib.pyplot as plt
 import segmentation_models_pytorch as smp
@@ -14,29 +14,78 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 VAL_IMG_DIR = "data/tiles_256/val/images"
 VAL_MASK_DIR = "data/tiles_256/val/masks"
 
-MODEL_PATH = "models/unet_resnet34_best.pth"
 OUT_DIR = "outputs/predictions"
 
 NUM_SAMPLES = 8
 THRESHOLD = 0.5
 
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--run_name", type=str, required=True)
+    parser.add_argument("--architecture", type=str, required=True)
+    parser.add_argument("--encoder", type=str, required=True)
+
+    parser.add_argument("--num_samples", type=int, default=8)
+    parser.add_argument("--threshold", type=float, default=0.5)
+
+    return parser.parse_args()
+
+
+def build_model(architecture, encoder):
+    architecture = architecture.lower()
+
+    common_args = {
+        "encoder_name": encoder,
+        "encoder_weights": None,
+        "in_channels": 3,
+        "classes": 1,
+    }
+
+    if architecture == "unet":
+        return smp.Unet(**common_args)
+
+    elif architecture == "fpn":
+        return smp.FPN(**common_args)
+
+    elif architecture == "deeplabv3plus":
+        return smp.DeepLabV3Plus(**common_args)
+
+    elif architecture == "pspnet":
+        return smp.PSPNet(**common_args)
+
+    else:
+        raise ValueError(f"Unsupported architecture: {architecture}")
+
+
 def main():
+    args = parse_args()
+
+    run_name = args.run_name
+    architecture = args.architecture
+    encoder = args.encoder
+    num_samples = args.num_samples
+    threshold = args.threshold
+
+    model_path = f"models/{run_name}.pth"
+
     os.makedirs(OUT_DIR, exist_ok=True)
 
     dataset = BuildingDataset(VAL_IMG_DIR, VAL_MASK_DIR)
 
-    model = smp.Unet(
-        encoder_name="resnet34",
-        encoder_weights=None,
-        in_channels=3,
-        classes=1,
-    ).to(DEVICE)
+    model = build_model(architecture, encoder).to(DEVICE)
 
-    model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
+    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
     model.eval()
 
-    indices = random.sample(range(len(dataset)), NUM_SAMPLES)
+    print("Device:", DEVICE)
+    print("Model:", model_path)
+    print("Architecture:", architecture)
+    print("Encoder:", encoder)
+
+    num_samples = min(num_samples, len(dataset))
+    indices = random.sample(range(len(dataset)), num_samples)
 
     for out_idx, idx in enumerate(indices):
         img_tensor, mask_tensor = dataset[idx]
@@ -47,7 +96,7 @@ def main():
             logits = model(img_input)
             prob = torch.sigmoid(logits)[0, 0].cpu().numpy()
 
-        pred_mask = prob > THRESHOLD
+        pred_mask = prob > threshold
 
         img = img_tensor.permute(1, 2, 0).cpu().numpy()
         gt_mask = mask_tensor[0].cpu().numpy()
@@ -73,7 +122,11 @@ def main():
 
         plt.tight_layout()
 
-        out_path = os.path.join(OUT_DIR, f"prediction_{out_idx:02d}.png")
+        out_path = os.path.join(
+            OUT_DIR,
+            f"{run_name}_prediction_{out_idx:02d}.png"
+        )
+
         plt.savefig(out_path, dpi=150)
         plt.close()
 

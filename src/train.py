@@ -7,7 +7,6 @@ import torch
 from torch.utils.data import DataLoader
 import segmentation_models_pytorch as smp
 import albumentations as A
-import cv2
 from tqdm import tqdm
 
 from dataset import BuildingDataset
@@ -83,30 +82,16 @@ def get_train_transform(use_augmentation):
         A.VerticalFlip(p=0.5),
         A.RandomRotate90(p=0.5),
 
-        A.Affine(
-            translate_percent={
-                "x": (-0.0625, 0.0625),
-                "y": (-0.0625, 0.0625),
-            },
-            scale=1.0,
-            rotate=(-30, 30),
-            border_mode=cv2.BORDER_CONSTANT,
-            p=0.5,
-        ),
-
-        A.ElasticTransform(
-            alpha=120,
-            sigma=6,
+        A.RandomBrightnessContrast(
+            brightness_limit=0.15,
+            contrast_limit=0.15,
             p=0.3,
         ),
 
-        A.RandomBrightnessContrast(
-            brightness_limit=0.2,
-            contrast_limit=0.2,
-            p=0.4,
+        A.RandomGamma(
+            gamma_limit=(90, 110),
+            p=0.2,
         ),
-
-        A.RandomGamma(p=0.3),
     ])
 
 
@@ -160,6 +145,45 @@ def log_experiment(
         ])
 
 
+def build_model(architecture, encoder):
+    architecture = architecture.lower()
+
+    if architecture == "unet":
+        return smp.Unet(
+            encoder_name=encoder,
+            encoder_weights="imagenet",
+            in_channels=3,
+            classes=1,
+        )
+
+    elif architecture == "fpn":
+        return smp.FPN(
+            encoder_name=encoder,
+            encoder_weights="imagenet",
+            in_channels=3,
+            classes=1,
+        )
+
+    elif architecture == "deeplabv3plus":
+        return smp.DeepLabV3Plus(
+            encoder_name=encoder,
+            encoder_weights="imagenet",
+            in_channels=3,
+            classes=1,
+        )
+
+    elif architecture == "pspnet":
+        return smp.PSPNet(
+            encoder_name=encoder,
+            encoder_weights="imagenet",
+            in_channels=3,
+            classes=1,
+        )
+
+    else:
+        raise ValueError(f"Unsupported architecture: {architecture}")
+
+
 def main():
     args = parse_args()
 
@@ -211,15 +235,7 @@ def main():
         pin_memory=True,
     )
 
-    if architecture != "unet":
-        raise ValueError(f"Unsupported architecture: {architecture}")
-
-    model = smp.Unet(
-        encoder_name=encoder,
-        encoder_weights="imagenet",
-        in_channels=3,
-        classes=1,
-    ).to(DEVICE)
+    model = build_model(architecture, encoder).to(DEVICE)
 
     dice_loss = smp.losses.DiceLoss(mode="binary")
     bce_loss = torch.nn.BCEWithLogitsLoss()
