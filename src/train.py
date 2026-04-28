@@ -5,6 +5,7 @@ import random
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
+import cv2
 import segmentation_models_pytorch as smp
 import albumentations as A
 from tqdm import tqdm
@@ -86,7 +87,11 @@ def get_train_transform(use_augmentation):
             translate_percent=0.05,
             scale=(0.85, 1.15),
             rotate=(-20, 20),
-            mode=0,  # same as border_mode
+            interpolation=cv2.INTER_LINEAR,
+            mask_interpolation=cv2.INTER_NEAREST,
+            border_mode=cv2.BORDER_CONSTANT,
+            fill=0,
+            fill_mask=0,
             p=0.5,
         ),
 
