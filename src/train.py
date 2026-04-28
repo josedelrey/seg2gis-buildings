@@ -82,11 +82,11 @@ def get_train_transform(use_augmentation):
         A.VerticalFlip(p=0.5),
         A.RandomRotate90(p=0.5),
 
-        A.ShiftScaleRotate(
-            shift_limit=0.05,
-            scale_limit=0.15,
-            rotate_limit=20,
-            border_mode=0,
+        A.Affine(
+            translate_percent=0.05,
+            scale=(0.85, 1.15),
+            rotate=(-20, 20),
+            mode=0,  # same as border_mode
             p=0.5,
         ),
 
