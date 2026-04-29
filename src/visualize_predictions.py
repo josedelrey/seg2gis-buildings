@@ -16,9 +16,6 @@ VAL_MASK_DIR = "data/tiles_256/val/masks"
 
 OUT_DIR = "outputs/predictions"
 
-NUM_SAMPLES = 8
-THRESHOLD = 0.5
-
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -29,6 +26,11 @@ def parse_args():
 
     parser.add_argument("--num_samples", type=int, default=8)
     parser.add_argument("--threshold", type=float, default=0.5)
+
+    # Minimum number of positive pixels required in the GT mask.
+    # Use 1 to reject only fully black masks.
+    # Use e.g. 100 or 500 to reject almost-empty masks too.
+    parser.add_argument("--min_mask_pixels", type=int, default=1)
 
     return parser.parse_args()
 
@@ -59,8 +61,28 @@ def build_model(architecture, encoder):
         raise ValueError(f"Unsupported architecture: {architecture}")
 
 
+def get_valid_indices(dataset, min_mask_pixels):
+    valid_indices = []
+
+    for i in range(len(dataset)):
+        _, mask_tensor = dataset[i]
+
+        positive_pixels = torch.count_nonzero(mask_tensor > 0).item()
+
+        if positive_pixels >= min_mask_pixels:
+            valid_indices.append(i)
+
+    return valid_indices
+
+
 def main():
     args = parse_args()
+
+    if args.min_mask_pixels < 1:
+        raise ValueError("--min_mask_pixels must be at least 1.")
+
+    if not 0.0 <= args.threshold <= 1.0:
+        raise ValueError("--threshold must be between 0 and 1.")
 
     run_name = args.run_name
     architecture = args.architecture
@@ -83,16 +105,28 @@ def main():
     print("Model:", model_path)
     print("Architecture:", architecture)
     print("Encoder:", encoder)
+    print("Prediction threshold:", threshold)
+    print("Minimum GT mask pixels:", args.min_mask_pixels)
 
-    num_samples = min(num_samples, len(dataset))
-    indices = random.sample(range(len(dataset)), num_samples)
+    valid_indices = get_valid_indices(dataset, args.min_mask_pixels)
+
+    if len(valid_indices) == 0:
+        raise RuntimeError(
+            f"No validation samples found with at least "
+            f"{args.min_mask_pixels} positive mask pixels."
+        )
+
+    print(f"Found {len(valid_indices)} valid samples.")
+
+    num_samples = min(num_samples, len(valid_indices))
+    indices = random.sample(valid_indices, num_samples)
 
     for out_idx, idx in enumerate(indices):
         img_tensor, mask_tensor = dataset[idx]
 
         img_input = img_tensor.unsqueeze(0).to(DEVICE)
 
-        with torch.no_grad():
+        with torch.inference_mode():
             logits = model(img_input)
             prob = torch.sigmoid(logits)[0, 0].cpu().numpy()
 
@@ -124,7 +158,7 @@ def main():
 
         out_path = os.path.join(
             OUT_DIR,
-            f"{run_name}_prediction_{out_idx:02d}.png"
+            f"{run_name}_prediction_{out_idx:02d}_sample_{idx}.png"
         )
 
         plt.savefig(out_path, dpi=150)
