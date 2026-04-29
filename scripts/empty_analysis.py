@@ -1,7 +1,6 @@
 import cv2
 from glob import glob
 from tqdm import tqdm
-import numpy as np
 
 mask_paths = sorted(glob("data/tiles_256/train/masks/*.png"))
 

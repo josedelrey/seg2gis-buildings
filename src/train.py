@@ -3,8 +3,10 @@ import csv
 import argparse
 import random
 import numpy as np
+
 import torch
 from torch.utils.data import DataLoader
+
 import cv2
 import segmentation_models_pytorch as smp
 import albumentations as A
@@ -26,7 +28,7 @@ CSV_HEADER = [
     "run_name",
     "architecture",
     "encoder",
-    "augmentation",
+    "augmentation_type",
     "epochs",
     "batch_size",
     "lr",
@@ -47,7 +49,20 @@ def parse_args():
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--use_augmentation", action="store_true")
+
+    parser.add_argument(
+        "--augmentation_type",
+        type=str,
+        default="noaug",
+        choices=["noaug", "geomaug", "mildaug", "strongaug"],
+        help=(
+            "Data augmentation strategy. "
+            "noaug = none, "
+            "geomaug = flips + 90 rotations + transpose, "
+            "mildaug = geometry + mild color changes, "
+            "strongaug = stronger affine + noise + blur."
+        ),
+    )
 
     parser.add_argument("--seed", type=int, default=42)
 
@@ -74,50 +89,107 @@ def dice_score(logits, masks, threshold=0.5):
     return (2 * intersection + 1e-7) / (total + 1e-7)
 
 
-def get_train_transform(use_augmentation):
-    if not use_augmentation:
+def get_train_transform(augmentation_type):
+    """
+    Augmentation presets for INRIA-style aerial building segmentation.
+
+    noaug:
+        No augmentation. Baseline.
+
+    geomaug:
+        Safe geometric augmentation for aerial imagery.
+        Preserves building appearance and avoids interpolation artifacts.
+
+    mildaug:
+        Geometry + mild color perturbation.
+        Usually the best practical compromise.
+
+    strongaug:
+        More aggressive robustness augmentation.
+        Use only as an experiment, not as the default.
+    """
+
+    if augmentation_type == "noaug":
         return None
 
-    return A.Compose([
-        A.HorizontalFlip(p=0.5),
-        A.VerticalFlip(p=0.5),
-        A.RandomRotate90(p=0.5),
+    if augmentation_type == "geomaug":
+        return A.Compose([
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.5),
+            A.RandomRotate90(p=0.5),
+            A.Transpose(p=0.25),
+        ])
 
-        A.Affine(
-            translate_percent=0.05,
-            scale=(0.85, 1.15),
-            rotate=(-20, 20),
-            interpolation=cv2.INTER_LINEAR,
-            mask_interpolation=cv2.INTER_NEAREST,
-            border_mode=cv2.BORDER_CONSTANT,
-            fill=0,
-            fill_mask=0,
-            p=0.5,
-        ),
+    if augmentation_type == "mildaug":
+        return A.Compose([
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.5),
+            A.RandomRotate90(p=0.5),
+            A.Transpose(p=0.25),
 
-        A.RandomBrightnessContrast(
-            brightness_limit=0.2,
-            contrast_limit=0.2,
-            p=0.4,
-        ),
+            A.RandomBrightnessContrast(
+                brightness_limit=0.10,
+                contrast_limit=0.10,
+                p=0.30,
+            ),
 
-        A.HueSaturationValue(
-            hue_shift_limit=10,
-            sat_shift_limit=15,
-            val_shift_limit=10,
-            p=0.3,
-        ),
+            A.HueSaturationValue(
+                hue_shift_limit=3,
+                sat_shift_limit=8,
+                val_shift_limit=5,
+                p=0.20,
+            ),
+        ])
 
-        A.GaussNoise(p=0.2),
-        A.MotionBlur(blur_limit=3, p=0.15),
-    ])
+    if augmentation_type == "strongaug":
+        return A.Compose([
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.5),
+            A.RandomRotate90(p=0.5),
+            A.Transpose(p=0.25),
+
+            A.Affine(
+                translate_percent=(-0.05, 0.05),
+                scale=(0.90, 1.10),
+                rotate=(-10, 10),
+                interpolation=cv2.INTER_LINEAR,
+                mask_interpolation=cv2.INTER_NEAREST,
+                border_mode=cv2.BORDER_REFLECT_101,
+                p=0.35,
+            ),
+
+            A.RandomBrightnessContrast(
+                brightness_limit=0.15,
+                contrast_limit=0.15,
+                p=0.40,
+            ),
+
+            A.HueSaturationValue(
+                hue_shift_limit=5,
+                sat_shift_limit=12,
+                val_shift_limit=8,
+                p=0.30,
+            ),
+
+            A.GaussNoise(
+                var_limit=(5.0, 20.0),
+                p=0.15,
+            ),
+
+            A.MotionBlur(
+                blur_limit=3,
+                p=0.10,
+            ),
+        ])
+
+    raise ValueError(f"Unsupported augmentation_type: {augmentation_type}")
 
 
 def log_experiment(
     run_name,
     architecture,
     encoder,
-    use_augmentation,
+    augmentation_type,
     epochs,
     batch_size,
     lr,
@@ -152,7 +224,7 @@ def log_experiment(
             run_name,
             architecture,
             encoder,
-            use_augmentation,
+            augmentation_type,
             epochs,
             batch_size,
             lr,
@@ -211,7 +283,7 @@ def main():
     batch_size = args.batch_size
     epochs = args.epochs
     lr = args.lr
-    use_augmentation = args.use_augmentation
+    augmentation_type = args.augmentation_type
     seed = args.seed
 
     model_path = f"models/{run_name}.pth"
@@ -222,8 +294,11 @@ def main():
 
     print("Device:", DEVICE)
     print("Experiment:", run_name)
+    print("Architecture:", architecture)
+    print("Encoder:", encoder)
+    print("Augmentation type:", augmentation_type)
 
-    train_transform = get_train_transform(use_augmentation)
+    train_transform = get_train_transform(augmentation_type)
 
     train_dataset = BuildingDataset(
         TRAIN_IMG_DIR,
@@ -351,7 +426,7 @@ def main():
         run_name=run_name,
         architecture=architecture,
         encoder=encoder,
-        use_augmentation=use_augmentation,
+        augmentation_type=augmentation_type,
         epochs=epochs,
         batch_size=batch_size,
         lr=lr,
