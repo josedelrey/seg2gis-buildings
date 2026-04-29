@@ -35,9 +35,6 @@ for exp in experiments:
         "--augmentation_type", exp["augmentation_type"],
     ]
 
-    if exp["use_augmentation"]:
-        command.append("--use_augmentation")
-
     print("\n" + "=" * 80)
     print("Running experiment:", exp["run_name"])
     print("=" * 80)
