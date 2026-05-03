@@ -3,13 +3,12 @@ import csv
 import argparse
 import random
 import numpy as np
-
 import torch
 from torch.utils.data import DataLoader
-
 import cv2
 import segmentation_models_pytorch as smp
 import albumentations as A
+from albumentations.pytorch import ToTensorV2
 from tqdm import tqdm
 
 from dataset import BuildingDataset
@@ -37,6 +36,9 @@ CSV_HEADER = [
     "best_val_loss",
     "notes",
 ]
+
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
 def parse_args():
@@ -89,6 +91,13 @@ def dice_score(logits, masks, threshold=0.5):
     return (2 * intersection + 1e-7) / (total + 1e-7)
 
 
+def finish_transform():
+    return [
+        A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ToTensorV2(),
+    ]
+
+
 def get_train_transform(augmentation_type):
     """
     Augmentation presets for INRIA-style aerial building segmentation.
@@ -110,7 +119,9 @@ def get_train_transform(augmentation_type):
     """
 
     if augmentation_type == "noaug":
-        return None
+        return A.Compose([
+            *finish_transform(),
+        ])
 
     if augmentation_type == "geomaug":
         return A.Compose([
@@ -118,6 +129,7 @@ def get_train_transform(augmentation_type):
             A.VerticalFlip(p=0.5),
             A.RandomRotate90(p=0.5),
             A.Transpose(p=0.25),
+            *finish_transform(),
         ])
 
     if augmentation_type == "mildaug":
@@ -139,6 +151,8 @@ def get_train_transform(augmentation_type):
                 val_shift_limit=5,
                 p=0.20,
             ),
+
+            *finish_transform(),
         ])
 
     if augmentation_type == "strongaug":
@@ -172,7 +186,7 @@ def get_train_transform(augmentation_type):
             ),
 
             A.GaussNoise(
-                var_limit=(5.0, 20.0),
+                std_range=(0.02, 0.08),
                 p=0.15,
             ),
 
@@ -180,9 +194,17 @@ def get_train_transform(augmentation_type):
                 blur_limit=3,
                 p=0.10,
             ),
+
+            *finish_transform(),
         ])
 
     raise ValueError(f"Unsupported augmentation_type: {augmentation_type}")
+
+
+def get_val_transform():
+    return A.Compose([
+        *finish_transform(),
+    ])
 
 
 def log_experiment(
@@ -309,7 +331,7 @@ def main():
     val_dataset = BuildingDataset(
         VAL_IMG_DIR,
         VAL_MASK_DIR,
-        transform=None,
+        transform=get_val_transform(),
     )
 
     train_loader = DataLoader(
