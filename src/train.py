@@ -32,8 +32,10 @@ CSV_HEADER = [
     "batch_size",
     "lr",
     "best_epoch",
-    "best_val_dice",
+    "best_val_dice_threshold_05",
     "best_val_loss",
+    "best_threshold",
+    "best_threshold_val_dice",
     "notes",
 ]
 
@@ -57,13 +59,6 @@ def parse_args():
         type=str,
         default="noaug",
         choices=["noaug", "geomaug", "mildaug", "strongaug"],
-        help=(
-            "Data augmentation strategy. "
-            "noaug = none, "
-            "geomaug = flips + 90 rotations + transpose, "
-            "mildaug = geometry + mild color changes, "
-            "strongaug = stronger affine + noise + blur."
-        ),
     )
 
     parser.add_argument("--seed", type=int, default=42)
@@ -99,25 +94,6 @@ def finish_transform():
 
 
 def get_train_transform(augmentation_type):
-    """
-    Augmentation presets for INRIA-style aerial building segmentation.
-
-    noaug:
-        No augmentation. Baseline.
-
-    geomaug:
-        Safe geometric augmentation for aerial imagery.
-        Preserves building appearance and avoids interpolation artifacts.
-
-    mildaug:
-        Geometry + mild color perturbation.
-        Usually the best practical compromise.
-
-    strongaug:
-        More aggressive robustness augmentation.
-        Use only as an experiment, not as the default.
-    """
-
     if augmentation_type == "noaug":
         return A.Compose([
             *finish_transform(),
@@ -207,6 +183,63 @@ def get_val_transform():
     ])
 
 
+def evaluate(model, loader, loss_fn, threshold=0.5, desc="Val"):
+    model.eval()
+
+    val_loss = 0.0
+    val_dice = 0.0
+
+    val_pbar = tqdm(loader, desc=desc, leave=False)
+
+    with torch.no_grad():
+        for imgs, masks in val_pbar:
+            imgs = imgs.to(DEVICE)
+            masks = masks.to(DEVICE)
+
+            logits = model(imgs)
+            loss = loss_fn(logits, masks)
+            dice = dice_score(logits, masks, threshold=threshold)
+
+            val_loss += loss.item()
+            val_dice += dice.item()
+
+            val_pbar.set_postfix({
+                "batch_loss": f"{loss.item():.4f}",
+                "batch_dice": f"{dice.item():.4f}",
+            })
+
+    val_loss /= len(loader)
+    val_dice /= len(loader)
+
+    return val_loss, val_dice
+
+
+def find_best_threshold(model, loader, loss_fn):
+    thresholds = [0.3, 0.4, 0.5, 0.6, 0.7]
+
+    best_threshold = 0.5
+    best_dice = 0.0
+
+    print("\nTuning threshold on validation set...")
+
+    for threshold in thresholds:
+        _, val_dice = evaluate(
+            model,
+            loader,
+            loss_fn,
+            threshold=threshold,
+            desc=f"Threshold {threshold:.2f}",
+        )
+
+        print(f"Threshold {threshold:.2f} | Val Dice: {val_dice:.4f}")
+
+        if val_dice > best_dice:
+            best_dice = val_dice
+            best_threshold = threshold
+
+    return best_threshold, best_dice
+
+
 def log_experiment(
     run_name,
     architecture,
@@ -216,8 +249,10 @@ def log_experiment(
     batch_size,
     lr,
     best_epoch,
-    best_val_dice,
+    best_val_dice_threshold_05,
     best_val_loss,
+    best_threshold,
+    best_threshold_val_dice,
 ):
     os.makedirs("outputs", exist_ok=True)
 
@@ -251,8 +286,10 @@ def log_experiment(
             batch_size,
             lr,
             best_epoch,
-            round(best_val_dice, 4),
+            round(best_val_dice_threshold_05, 4),
             round(best_val_loss, 4) if best_val_loss is not None else None,
+            round(best_threshold, 2),
+            round(best_threshold_val_dice, 4),
             "",
         ])
 
@@ -268,7 +305,7 @@ def build_model(architecture, encoder):
             classes=1,
         )
 
-    elif architecture == "fpn":
+    if architecture == "fpn":
         return smp.FPN(
             encoder_name=encoder,
             encoder_weights="imagenet",
@@ -276,7 +313,7 @@ def build_model(architecture, encoder):
             classes=1,
         )
 
-    elif architecture == "deeplabv3plus":
+    if architecture == "deeplabv3plus":
         return smp.DeepLabV3Plus(
             encoder_name=encoder,
             encoder_weights="imagenet",
@@ -284,7 +321,7 @@ def build_model(architecture, encoder):
             classes=1,
         )
 
-    elif architecture == "pspnet":
+    if architecture == "pspnet":
         return smp.PSPNet(
             encoder_name=encoder,
             encoder_weights="imagenet",
@@ -292,8 +329,7 @@ def build_model(architecture, encoder):
             classes=1,
         )
 
-    else:
-        raise ValueError(f"Unsupported architecture: {architecture}")
+    raise ValueError(f"Unsupported architecture: {architecture}")
 
 
 def main():
@@ -320,12 +356,10 @@ def main():
     print("Encoder:", encoder)
     print("Augmentation type:", augmentation_type)
 
-    train_transform = get_train_transform(augmentation_type)
-
     train_dataset = BuildingDataset(
         TRAIN_IMG_DIR,
         TRAIN_MASK_DIR,
-        transform=train_transform,
+        transform=get_train_transform(augmentation_type),
     )
 
     val_dataset = BuildingDataset(
@@ -371,8 +405,8 @@ def main():
     best_val_loss = None
     best_epoch = 0
 
-    for epoch in range(epochs):
-        print(f"\n=== Epoch {epoch + 1}/{epochs} ===")
+    for epoch in range(1, epochs + 1):
+        print(f"\n=== Epoch {epoch}/{epochs} ===")
 
         model.train()
         train_loss = 0.0
@@ -399,31 +433,13 @@ def main():
 
         train_loss /= len(train_loader)
 
-        model.eval()
-        val_loss = 0.0
-        val_dice = 0.0
-
-        val_pbar = tqdm(val_loader, desc="Val", leave=False)
-
-        with torch.no_grad():
-            for imgs, masks in val_pbar:
-                imgs = imgs.to(DEVICE)
-                masks = masks.to(DEVICE)
-
-                logits = model(imgs)
-                loss = loss_fn(logits, masks)
-                dice = dice_score(logits, masks)
-
-                val_loss += loss.item()
-                val_dice += dice.item()
-
-                val_pbar.set_postfix({
-                    "batch_loss": f"{loss.item():.4f}",
-                    "batch_dice": f"{dice.item():.4f}",
-                })
-
-        val_loss /= len(val_loader)
-        val_dice /= len(val_loader)
+        val_loss, val_dice = evaluate(
+            model,
+            val_loader,
+            loss_fn,
+            threshold=0.5,
+            desc="Val",
+        )
 
         scheduler.step(val_dice)
 
@@ -431,18 +447,34 @@ def main():
         print(f"Current LR: {current_lr:.6f}")
 
         print(
-            f"Epoch {epoch + 1}/{epochs} | "
+            f"Epoch {epoch}/{epochs} | "
             f"Train Loss: {train_loss:.4f} | "
             f"Val Loss: {val_loss:.4f} | "
-            f"Val Dice: {val_dice:.4f}"
+            f"Val Dice @0.5: {val_dice:.4f}"
         )
 
         if val_dice > best_val_dice:
             best_val_dice = val_dice
             best_val_loss = val_loss
-            best_epoch = epoch + 1
+            best_epoch = epoch
             torch.save(model.state_dict(), model_path)
             print("Saved best model.")
+
+    print(f"\nBest Val Dice @0.5: {best_val_dice:.4f}")
+    print(f"Best Epoch: {best_epoch}")
+
+    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+
+    best_threshold, best_threshold_val_dice = find_best_threshold(
+        model,
+        val_loader,
+        loss_fn,
+    )
+
+    print(
+        f"\nBest threshold: {best_threshold:.2f} | "
+        f"Val Dice: {best_threshold_val_dice:.4f}"
+    )
 
     log_experiment(
         run_name=run_name,
@@ -453,8 +485,10 @@ def main():
         batch_size=batch_size,
         lr=lr,
         best_epoch=best_epoch,
-        best_val_dice=best_val_dice,
+        best_val_dice_threshold_05=best_val_dice,
         best_val_loss=best_val_loss,
+        best_threshold=best_threshold,
+        best_threshold_val_dice=best_threshold_val_dice,
     )
 
 
