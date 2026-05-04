@@ -6,8 +6,11 @@ import random
 import torch
 import matplotlib.pyplot as plt
 import segmentation_models_pytorch as smp
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 
 from dataset import BuildingDataset
+from gis_utils import denormalize_image
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -18,6 +21,9 @@ VAL_MASK_DIR = "data/tiles_256/val/masks"
 MODELS_DIR = "models"
 EXPERIMENTS_CSV = "outputs/experiments.csv"
 OUT_DIR = "outputs/predictions"
+
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
 def parse_args():
@@ -41,6 +47,13 @@ def parse_args():
     return parser.parse_args()
 
 
+def get_val_transform():
+    return A.Compose([
+        A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ToTensorV2(),
+    ])
+
+
 def build_model(architecture, encoder):
     architecture = architecture.lower()
 
@@ -54,17 +67,16 @@ def build_model(architecture, encoder):
     if architecture == "unet":
         return smp.Unet(**common_args)
 
-    elif architecture == "fpn":
+    if architecture == "fpn":
         return smp.FPN(**common_args)
 
-    elif architecture == "deeplabv3plus":
+    if architecture == "deeplabv3plus":
         return smp.DeepLabV3Plus(**common_args)
 
-    elif architecture == "pspnet":
+    if architecture == "pspnet":
         return smp.PSPNet(**common_args)
 
-    else:
-        raise ValueError(f"Unsupported architecture: {architecture}")
+    raise ValueError(f"Unsupported architecture: {architecture}")
 
 
 def get_valid_indices(dataset, min_mask_pixels):
@@ -91,7 +103,7 @@ def load_experiments_from_csv(experiments_csv, models_dir):
             model_path = os.path.join(models_dir, f"{run_name}.pth")
 
             if not os.path.exists(model_path):
-                print(f"Skipping {run_name}: model file not found.")
+                print(f"Skipping {run_name}: model file not found at {model_path}")
                 continue
 
             experiments.append({
@@ -152,6 +164,7 @@ def save_prediction_visualization(
     for out_idx, idx in enumerate(indices):
         img_tensor, mask_tensor = dataset[idx]
 
+        # Normalized tensor for the model.
         img_input = img_tensor.unsqueeze(0).to(DEVICE)
 
         with torch.inference_mode():
@@ -160,7 +173,9 @@ def save_prediction_visualization(
 
         pred_mask = prob > threshold
 
-        img = img_tensor.permute(1, 2, 0).cpu().numpy()
+        # Denormalized image only for plotting.
+        img = denormalize_image(img_tensor)
+
         gt_mask = mask_tensor[0].cpu().numpy()
 
         fig, axes = plt.subplots(1, 4, figsize=(14, 4))
@@ -208,7 +223,11 @@ def main():
 
     os.makedirs(args.out_dir, exist_ok=True)
 
-    dataset = BuildingDataset(VAL_IMG_DIR, VAL_MASK_DIR)
+    dataset = BuildingDataset(
+        VAL_IMG_DIR,
+        VAL_MASK_DIR,
+        transform=get_val_transform(),
+    )
 
     print("Device:", DEVICE)
     print("Prediction threshold:", args.threshold)

@@ -3,14 +3,17 @@ import csv
 import argparse
 import random
 import math
+
 import numpy as np
 import cv2
-
 import torch
 import matplotlib.pyplot as plt
 import segmentation_models_pytorch as smp
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 
 from dataset import BuildingDataset
+from gis_utils import denormalize_image
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -22,6 +25,9 @@ MODELS_DIR = "models"
 EXPERIMENTS_CSV = "outputs/experiments.csv"
 OUT_DIR = "outputs/model_comparisons"
 
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_STD = (0.229, 0.224, 0.225)
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -32,9 +38,6 @@ def parse_args():
 
     parser.add_argument("--plots_per_row", type=int, default=4)
 
-    # Minimum number of positive pixels required in the GT mask.
-    # Use 1 to reject only fully black masks.
-    # Use e.g. 100 or 500 to reject almost-empty masks too.
     parser.add_argument("--min_mask_pixels", type=int, default=1)
 
     parser.add_argument("--models_dir", type=str, default=MODELS_DIR)
@@ -42,6 +45,13 @@ def parse_args():
     parser.add_argument("--out_dir", type=str, default=OUT_DIR)
 
     return parser.parse_args()
+
+
+def get_val_transform():
+    return A.Compose([
+        A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ToTensorV2(),
+    ])
 
 
 def build_model(architecture, encoder):
@@ -57,17 +67,16 @@ def build_model(architecture, encoder):
     if architecture == "unet":
         return smp.Unet(**common_args)
 
-    elif architecture == "fpn":
+    if architecture == "fpn":
         return smp.FPN(**common_args)
 
-    elif architecture == "deeplabv3plus":
+    if architecture == "deeplabv3plus":
         return smp.DeepLabV3Plus(**common_args)
 
-    elif architecture == "pspnet":
+    if architecture == "pspnet":
         return smp.PSPNet(**common_args)
 
-    else:
-        raise ValueError(f"Unsupported architecture: {architecture}")
+    raise ValueError(f"Unsupported architecture: {architecture}")
 
 
 def load_experiments(experiments_csv, models_dir):
@@ -81,7 +90,7 @@ def load_experiments(experiments_csv, models_dir):
             model_path = os.path.join(models_dir, f"{run_name}.pth")
 
             if not os.path.exists(model_path):
-                print(f"Skipping {run_name}: model file not found.")
+                print(f"Skipping {run_name}: model file not found at {model_path}")
                 continue
 
             experiments.append({
@@ -115,17 +124,6 @@ def load_models(experiments):
 
 
 def find_non_empty_mask_indices(dataset, min_mask_pixels):
-    """
-    Finds validation samples whose ground-truth mask is not empty.
-
-    Fast path:
-        If the dataset exposes mask paths, read masks directly with cv2.
-
-    Fallback:
-        If the dataset does not expose mask paths, use dataset[i].
-        This is slower because it loads the image too and applies dataset processing.
-    """
-
     valid_indices = []
 
     mask_paths = None
@@ -145,14 +143,15 @@ def find_non_empty_mask_indices(dataset, min_mask_pixels):
                 print(f"Warning: could not read mask: {mask_path}")
                 continue
 
-            positive_pixels = np.count_nonzero(mask > 0)
+            # Must match BuildingDataset:
+            # mask = (mask > 127).astype("float32")
+            positive_pixels = np.count_nonzero(mask > 127)
 
             if positive_pixels >= min_mask_pixels:
                 valid_indices.append(i)
 
     else:
         print("Checking masks using fallback path: dataset[i].")
-        print("This is slower because it loads the image and mask through the dataset.")
 
         for i in range(len(dataset)):
             _, mask_tensor = dataset[i]
@@ -181,7 +180,11 @@ def main():
 
     random.seed(args.seed)
 
-    dataset = BuildingDataset(VAL_IMG_DIR, VAL_MASK_DIR)
+    dataset = BuildingDataset(
+        VAL_IMG_DIR,
+        VAL_MASK_DIR,
+        transform=get_val_transform(),
+    )
 
     experiments = load_experiments(args.experiments_csv, args.models_dir)
 
@@ -215,9 +218,12 @@ def main():
     for out_idx, idx in enumerate(indices):
         img_tensor, mask_tensor = dataset[idx]
 
+        # Normalized tensor for the model.
         img_input = img_tensor.unsqueeze(0).to(DEVICE)
 
-        img = img_tensor.permute(1, 2, 0).cpu().numpy()
+        # Denormalized image only for plotting.
+        img = denormalize_image(img_tensor)
+
         gt_mask = mask_tensor[0].cpu().numpy()
 
         predictions = []

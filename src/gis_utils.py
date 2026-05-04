@@ -7,6 +7,7 @@ import torch
 import segmentation_models_pytorch as smp
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+from tqdm import tqdm
 
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
@@ -61,8 +62,31 @@ def load_rgb_image(image_path):
     if image is None:
         raise FileNotFoundError(f"Could not read image: {image_path}")
 
+    if image.dtype != np.uint8:
+        image = np.clip(image, 0, 255).astype(np.uint8)
+
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     return image
+
+
+def denormalize_image(img_tensor):
+    mean = torch.tensor(
+        IMAGENET_MEAN,
+        dtype=img_tensor.dtype,
+        device=img_tensor.device,
+    ).view(3, 1, 1)
+
+    std = torch.tensor(
+        IMAGENET_STD,
+        dtype=img_tensor.dtype,
+        device=img_tensor.device,
+    ).view(3, 1, 1)
+
+    img = img_tensor * std + mean
+    img = img.clamp(0, 1)
+    img = img.cpu().permute(1, 2, 0).numpy()
+
+    return img
 
 
 def pad_image_to_tile_grid(image, tile_size, stride):
@@ -101,8 +125,11 @@ def pad_image_to_tile_grid(image, tile_size, stride):
 
 
 def predict_tile(model, tile_rgb, transform, device):
+    if tile_rgb.dtype != np.uint8:
+        tile_rgb = np.clip(tile_rgb, 0, 255).astype(np.uint8)
+
     transformed = transform(image=tile_rgb)
-    img_tensor = transformed["image"].unsqueeze(0).to(device)
+    img_tensor = transformed["image"].unsqueeze(0).float().to(device)
 
     with torch.inference_mode():
         logits = model(img_tensor)
@@ -145,19 +172,20 @@ def predict_full_image_tiled(
     y_positions = range(0, padded_h - tile_size + 1, stride)
     x_positions = range(0, padded_w - tile_size + 1, stride)
 
-    for y in y_positions:
-        for x in x_positions:
-            tile = padded_image[y:y + tile_size, x:x + tile_size]
+    tiles = [(y, x) for y in y_positions for x in x_positions]
 
-            prob = predict_tile(
-                model=model,
-                tile_rgb=tile,
-                transform=transform,
-                device=device,
-            )
+    for y, x in tqdm(tiles, desc="Predicting tiles"):
+        tile = padded_image[y:y + tile_size, x:x + tile_size]
 
-            prob_sum[y:y + tile_size, x:x + tile_size] += prob
-            count_map[y:y + tile_size, x:x + tile_size] += 1.0
+        prob = predict_tile(
+            model=model,
+            tile_rgb=tile,
+            transform=transform,
+            device=device,
+        )
+
+        prob_sum[y:y + tile_size, x:x + tile_size] += prob
+        count_map[y:y + tile_size, x:x + tile_size] += 1.0
 
     if np.any(count_map == 0):
         raise RuntimeError("Some pixels were not covered by tiled inference.")
