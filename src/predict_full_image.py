@@ -1,6 +1,7 @@
 import os
 import argparse
 
+import cv2
 import torch
 
 from gis_utils import (
@@ -14,6 +15,11 @@ from gis_utils import (
 )
 
 from postprocess import postprocess_mask
+from vectorize import (
+    mask_to_contours,
+    simplify_contours,
+    draw_polygons_on_image,
+)
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -35,8 +41,13 @@ def parse_args():
     parser.add_argument("--tile_size", type=int, default=256)
     parser.add_argument("--stride", type=int, default=128)
 
-    parser.add_argument("--min_area", type=int, default=64)
-    parser.add_argument("--open_kernel_size", type=int, default=3)
+    # Postprocessing (light)
+    parser.add_argument("--min_area", type=int, default=500)
+    parser.add_argument("--open_kernel_size", type=int, default=5)
+
+    # Polygon extraction (conservative)
+    parser.add_argument("--polygon_min_area", type=int, default=150)
+    parser.add_argument("--epsilon_ratio", type=float, default=0.005)
 
     parser.add_argument("--out_dir", type=str, default=DEFAULT_OUT_DIR)
     parser.add_argument("--output_name", type=str, default=None)
@@ -59,6 +70,7 @@ def build_output_paths(out_dir, output_name):
         "prob_png": os.path.join(out_dir, f"{output_name}_prob.png"),
         "raw_mask_png": os.path.join(out_dir, f"{output_name}_mask.png"),
         "clean_mask_png": os.path.join(out_dir, f"{output_name}_clean_mask.png"),
+        "polygon_overlay_png": os.path.join(out_dir, f"{output_name}_polygons_overlay.png"),
     }
 
 
@@ -73,6 +85,8 @@ def print_config(args):
     print("Stride:", args.stride)
     print("Postprocess min area:", args.min_area)
     print("Postprocess open kernel size:", args.open_kernel_size)
+    print("Polygon min area:", args.polygon_min_area)
+    print("Polygon epsilon ratio:", args.epsilon_ratio)
 
 
 def run_full_image_inference(args):
@@ -95,7 +109,7 @@ def run_full_image_inference(args):
         device=DEVICE,
     )
 
-    return prob_map
+    return image_rgb, prob_map
 
 
 def generate_masks(args, prob_map):
@@ -113,11 +127,45 @@ def generate_masks(args, prob_map):
     return raw_mask, clean_mask
 
 
-def save_outputs(prob_map, raw_mask, clean_mask, output_paths):
+def generate_polygon_overlay(args, image_rgb, clean_mask):
+    contours = mask_to_contours(
+        clean_mask,
+        min_area=args.polygon_min_area,
+    )
+
+    polygons = simplify_contours(
+        contours,
+        epsilon_ratio=args.epsilon_ratio,
+    )
+
+    overlay_rgb = draw_polygons_on_image(
+        image_rgb=image_rgb,
+        polygons=polygons,
+        color=(255, 0, 0),
+        thickness=2,
+    )
+
+    print("Extracted contours:", len(contours))
+    print("Simplified polygons:", len(polygons))
+
+    return overlay_rgb
+
+
+def save_outputs(prob_map, raw_mask, clean_mask, polygon_overlay_rgb, output_paths):
     save_probability_map(prob_map, output_paths["prob_npy"])
     save_probability_png(prob_map, output_paths["prob_png"])
     save_mask_png(raw_mask, output_paths["raw_mask_png"])
     save_mask_png(clean_mask, output_paths["clean_mask_png"])
+
+    polygon_overlay_bgr = cv2.cvtColor(
+        polygon_overlay_rgb,
+        cv2.COLOR_RGB2BGR,
+    )
+
+    cv2.imwrite(
+        output_paths["polygon_overlay_png"],
+        polygon_overlay_bgr,
+    )
 
 
 def print_saved_outputs(output_paths):
@@ -126,6 +174,7 @@ def print_saved_outputs(output_paths):
     print("Saved probability preview:", output_paths["prob_png"])
     print("Saved raw binary mask:", output_paths["raw_mask_png"])
     print("Saved cleaned binary mask:", output_paths["clean_mask_png"])
+    print("Saved polygon overlay:", output_paths["polygon_overlay_png"])
     print("Done.")
 
 
@@ -146,17 +195,24 @@ def main():
 
     print_config(args)
 
-    prob_map = run_full_image_inference(args)
+    image_rgb, prob_map = run_full_image_inference(args)
 
     raw_mask, clean_mask = generate_masks(
         args=args,
         prob_map=prob_map,
     )
 
+    polygon_overlay_rgb = generate_polygon_overlay(
+        args=args,
+        image_rgb=image_rgb,
+        clean_mask=clean_mask,
+    )
+
     save_outputs(
         prob_map=prob_map,
         raw_mask=raw_mask,
         clean_mask=clean_mask,
+        polygon_overlay_rgb=polygon_overlay_rgb,
         output_paths=output_paths,
     )
 
