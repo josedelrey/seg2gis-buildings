@@ -13,6 +13,8 @@ from gis_utils import (
     save_mask_png,
 )
 
+from postprocess import postprocess_mask
+
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -33,6 +35,9 @@ def parse_args():
     parser.add_argument("--tile_size", type=int, default=256)
     parser.add_argument("--stride", type=int, default=128)
 
+    parser.add_argument("--min_area", type=int, default=64)
+    parser.add_argument("--open_kernel_size", type=int, default=3)
+
     parser.add_argument("--out_dir", type=str, default=DEFAULT_OUT_DIR)
     parser.add_argument("--output_name", type=str, default=None)
 
@@ -48,17 +53,16 @@ def get_output_name(image_path, output_name):
     return name
 
 
-def main():
-    args = parse_args()
+def build_output_paths(out_dir, output_name):
+    return {
+        "prob_npy": os.path.join(out_dir, f"{output_name}_prob.npy"),
+        "prob_png": os.path.join(out_dir, f"{output_name}_prob.png"),
+        "raw_mask_png": os.path.join(out_dir, f"{output_name}_mask.png"),
+        "clean_mask_png": os.path.join(out_dir, f"{output_name}_clean_mask.png"),
+    }
 
-    os.makedirs(args.out_dir, exist_ok=True)
 
-    output_name = get_output_name(args.image_path, args.output_name)
-
-    prob_npy_path = os.path.join(args.out_dir, f"{output_name}_prob.npy")
-    prob_png_path = os.path.join(args.out_dir, f"{output_name}_prob.png")
-    mask_png_path = os.path.join(args.out_dir, f"{output_name}_mask.png")
-
+def print_config(args):
     print("Device:", DEVICE)
     print("Image:", args.image_path)
     print("Model:", args.model_path)
@@ -67,7 +71,11 @@ def main():
     print("Threshold:", args.threshold)
     print("Tile size:", args.tile_size)
     print("Stride:", args.stride)
+    print("Postprocess min area:", args.min_area)
+    print("Postprocess open kernel size:", args.open_kernel_size)
 
+
+def run_full_image_inference(args):
     image_rgb = load_rgb_image(args.image_path)
 
     print("Input image shape:", image_rgb.shape)
@@ -87,20 +95,72 @@ def main():
         device=DEVICE,
     )
 
-    mask = threshold_probability_map(
+    return prob_map
+
+
+def generate_masks(args, prob_map):
+    raw_mask = threshold_probability_map(
         prob_map=prob_map,
         threshold=args.threshold,
     )
 
-    save_probability_map(prob_map, prob_npy_path)
-    save_probability_png(prob_map, prob_png_path)
-    save_mask_png(mask, mask_png_path)
+    clean_mask = postprocess_mask(
+        raw_mask,
+        min_area=args.min_area,
+        open_kernel_size=args.open_kernel_size,
+    )
 
+    return raw_mask, clean_mask
+
+
+def save_outputs(prob_map, raw_mask, clean_mask, output_paths):
+    save_probability_map(prob_map, output_paths["prob_npy"])
+    save_probability_png(prob_map, output_paths["prob_png"])
+    save_mask_png(raw_mask, output_paths["raw_mask_png"])
+    save_mask_png(clean_mask, output_paths["clean_mask_png"])
+
+
+def print_saved_outputs(output_paths):
     print()
-    print("Saved probability map:", prob_npy_path)
-    print("Saved probability preview:", prob_png_path)
-    print("Saved binary mask:", mask_png_path)
+    print("Saved probability map:", output_paths["prob_npy"])
+    print("Saved probability preview:", output_paths["prob_png"])
+    print("Saved raw binary mask:", output_paths["raw_mask_png"])
+    print("Saved cleaned binary mask:", output_paths["clean_mask_png"])
     print("Done.")
+
+
+def main():
+    args = parse_args()
+
+    os.makedirs(args.out_dir, exist_ok=True)
+
+    output_name = get_output_name(
+        image_path=args.image_path,
+        output_name=args.output_name,
+    )
+
+    output_paths = build_output_paths(
+        out_dir=args.out_dir,
+        output_name=output_name,
+    )
+
+    print_config(args)
+
+    prob_map = run_full_image_inference(args)
+
+    raw_mask, clean_mask = generate_masks(
+        args=args,
+        prob_map=prob_map,
+    )
+
+    save_outputs(
+        prob_map=prob_map,
+        raw_mask=raw_mask,
+        clean_mask=clean_mask,
+        output_paths=output_paths,
+    )
+
+    print_saved_outputs(output_paths)
 
 
 if __name__ == "__main__":

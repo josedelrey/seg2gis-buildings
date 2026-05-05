@@ -3,15 +3,6 @@ import subprocess
 
 experiments = [
     {
-        "run_name": "unet_r34_256_noaug_e10",
-        "architecture": "unet",
-        "encoder": "resnet34",
-        "batch_size": 8,
-        "epochs": 10,
-        "lr": 1e-4,
-        "augmentation_type": "noaug",
-    },
-    {
         "run_name": "unet_r50_256_noaug_e10",
         "architecture": "unet",
         "encoder": "resnet50",
