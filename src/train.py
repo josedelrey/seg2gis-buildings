@@ -73,8 +73,8 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = False
+    torch.backends.cudnn.benchmark = True
 
 
 def dice_score(logits, masks, threshold=0.5):
@@ -194,11 +194,16 @@ def evaluate(model, loader, loss_fn, threshold=0.5, desc="Val"):
 
     with torch.no_grad():
         for imgs, masks in val_pbar:
-            imgs = imgs.to(DEVICE)
-            masks = masks.to(DEVICE)
+            imgs = imgs.to(DEVICE, non_blocking=True)
+            masks = masks.to(DEVICE, non_blocking=True)
 
-            logits = model(imgs)
-            loss = loss_fn(logits, masks)
+            with torch.amp.autocast(
+                device_type="cuda",
+                enabled=(DEVICE == "cuda"),
+            ):
+                logits = model(imgs)
+                loss = loss_fn(logits, masks)
+
             dice = dice_score(logits, masks, threshold=threshold)
 
             val_loss += loss.item()
@@ -356,6 +361,7 @@ def main():
     print("Architecture:", architecture)
     print("Encoder:", encoder)
     print("Augmentation type:", augmentation_type)
+    print("Mixed precision:", DEVICE == "cuda")
 
     train_dataset = BuildingDataset(
         TRAIN_IMG_DIR,
@@ -373,16 +379,18 @@ def main():
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=2,
-        pin_memory=True,
+        num_workers=4,
+        pin_memory=(DEVICE == "cuda"),
+        persistent_workers=True,
     )
 
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=2,
-        pin_memory=True,
+        num_workers=4,
+        pin_memory=(DEVICE == "cuda"),
+        persistent_workers=True,
     )
 
     model = build_model(architecture, encoder).to(DEVICE)
@@ -402,6 +410,11 @@ def main():
         patience=2,
     )
 
+    scaler = torch.amp.GradScaler(
+        device="cuda",
+        enabled=(DEVICE == "cuda"),
+    )
+
     best_val_dice = 0.0
     best_val_loss = None
     best_epoch = 0
@@ -415,15 +428,21 @@ def main():
         train_pbar = tqdm(train_loader, desc="Train", leave=False)
 
         for imgs, masks in train_pbar:
-            imgs = imgs.to(DEVICE)
-            masks = masks.to(DEVICE)
+            imgs = imgs.to(DEVICE, non_blocking=True)
+            masks = masks.to(DEVICE, non_blocking=True)
 
-            logits = model(imgs)
-            loss = loss_fn(logits, masks)
+            optimizer.zero_grad(set_to_none=True)
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            with torch.amp.autocast(
+                device_type="cuda",
+                enabled=(DEVICE == "cuda"),
+            ):
+                logits = model(imgs)
+                loss = loss_fn(logits, masks)
+
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
 
             train_loss += loss.item()
 
