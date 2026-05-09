@@ -3,6 +3,7 @@ import csv
 import argparse
 import random
 import math
+import sys
 
 import numpy as np
 import cv2
@@ -11,6 +12,8 @@ import matplotlib.pyplot as plt
 import segmentation_models_pytorch as smp
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+
+sys.path.append(os.path.abspath("src"))
 
 from dataset import BuildingDataset
 from gis_utils import denormalize_image
@@ -110,7 +113,7 @@ def load_models(experiments):
         print(f"Loading {exp['run_name']}...")
 
         model = build_model(exp["architecture"], exp["encoder"]).to(DEVICE)
-        model.load_state_dict(torch.load(exp["model_path"], map_location=DEVICE))
+        model.load_state_dict(torch.load(exp["model_path"], weights_only=True, map_location=DEVICE))
         model.eval()
 
         loaded_models.append({

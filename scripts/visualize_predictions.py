@@ -2,12 +2,15 @@ import os
 import csv
 import argparse
 import random
+import sys
 
 import torch
 import matplotlib.pyplot as plt
 import segmentation_models_pytorch as smp
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+
+sys.path.append(os.path.abspath("src"))
 
 from dataset import BuildingDataset
 from gis_utils import denormalize_image
@@ -267,7 +270,7 @@ def main():
         print("Encoder:", encoder)
 
         model = build_model(architecture, encoder).to(DEVICE)
-        model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+        model.load_state_dict(torch.load(model_path, weights_only=True, map_location=DEVICE))
         model.eval()
 
         save_prediction_visualization(

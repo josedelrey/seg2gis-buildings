@@ -1,8 +1,11 @@
 import os
 import argparse
+import sys
 
 import cv2
 import torch
+
+sys.path.append(os.path.abspath("src"))
 
 from gis_utils import (
     load_model,

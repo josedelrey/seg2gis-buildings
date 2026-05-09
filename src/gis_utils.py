@@ -42,7 +42,7 @@ def build_model(architecture, encoder):
 def load_model(model_path, architecture, encoder, device):
     model = build_model(architecture, encoder).to(device)
 
-    state_dict = torch.load(model_path, map_location=device)
+    state_dict = torch.load(model_path, weights_only=True, map_location=device)
     model.load_state_dict(state_dict)
 
     model.eval()
