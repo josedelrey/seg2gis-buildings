@@ -4,6 +4,7 @@ import argparse
 import random
 import sys
 
+import cv2
 import torch
 import matplotlib.pyplot as plt
 import segmentation_models_pytorch as smp
@@ -85,9 +86,16 @@ def build_model(architecture, encoder):
 def get_valid_indices(dataset, min_mask_pixels):
     valid_indices = []
 
-    for i in range(len(dataset)):
-        _, mask_tensor = dataset[i]
-        positive_pixels = torch.count_nonzero(mask_tensor > 0).item()
+    print("Checking validation masks...")
+
+    for i, mask_path in enumerate(dataset.mask_paths):
+        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+
+        if mask is None:
+            print(f"Warning: could not read mask: {mask_path}")
+            continue
+
+        positive_pixels = (mask > 127).sum()
 
         if positive_pixels >= min_mask_pixels:
             valid_indices.append(i)
@@ -164,10 +172,31 @@ def save_prediction_visualization(
     run_out_dir = os.path.join(out_dir, run_name)
     os.makedirs(run_out_dir, exist_ok=True)
 
-    for out_idx, idx in enumerate(indices):
+    n_rows = len(indices)
+    n_cols = 4
+
+    fig, axes = plt.subplots(
+        n_rows,
+        n_cols,
+        figsize=(14, 4 * n_rows),
+    )
+
+    if n_rows == 1:
+        axes = axes.reshape(1, n_cols)
+
+    column_titles = [
+        "Input image",
+        "Ground truth",
+        "Prediction",
+        "Overlay",
+    ]
+
+    for col_idx, title in enumerate(column_titles):
+        axes[0, col_idx].set_title(title, fontsize=12)
+
+    for row_idx, idx in enumerate(indices):
         img_tensor, mask_tensor = dataset[idx]
 
-        # Normalized tensor for the model.
         img_input = img_tensor.unsqueeze(0).to(DEVICE)
 
         with torch.inference_mode():
@@ -175,42 +204,45 @@ def save_prediction_visualization(
             prob = torch.sigmoid(logits)[0, 0].cpu().numpy()
 
         pred_mask = prob > threshold
-
-        # Denormalized image only for plotting.
         img = denormalize_image(img_tensor)
-
         gt_mask = mask_tensor[0].cpu().numpy()
 
-        fig, axes = plt.subplots(1, 4, figsize=(14, 4))
+        axes[row_idx, 0].imshow(img)
+        axes[row_idx, 0].axis("off")
 
-        axes[0].imshow(img)
-        axes[0].set_title("Input image")
-        axes[0].axis("off")
+        axes[row_idx, 1].imshow(gt_mask, cmap="gray", interpolation="nearest")
+        axes[row_idx, 1].axis("off")
 
-        axes[1].imshow(gt_mask, cmap="gray", interpolation="nearest")
-        axes[1].set_title("Ground truth")
-        axes[1].axis("off")
+        axes[row_idx, 2].imshow(pred_mask, cmap="gray", interpolation="nearest")
+        axes[row_idx, 2].axis("off")
 
-        axes[2].imshow(pred_mask, cmap="gray", interpolation="nearest")
-        axes[2].set_title("Prediction")
-        axes[2].axis("off")
+        axes[row_idx, 3].imshow(img)
+        axes[row_idx, 3].imshow(
+            pred_mask,
+            cmap="Reds",
+            alpha=0.35,
+            interpolation="nearest",
+        )
+        axes[row_idx, 3].axis("off")
 
-        axes[3].imshow(img)
-        axes[3].imshow(pred_mask, cmap="Reds", alpha=0.35, interpolation="nearest")
-        axes[3].set_title("Overlay")
-        axes[3].axis("off")
-
-        plt.tight_layout()
-
-        out_path = os.path.join(
-            run_out_dir,
-            f"{run_name}_prediction_{out_idx:02d}_sample_{idx}.png"
+        axes[row_idx, 0].set_ylabel(
+            f"Sample {idx}",
+            fontsize=10,
         )
 
-        plt.savefig(out_path, dpi=150)
-        plt.close()
+    plt.tight_layout()
 
-        print(f"Saved {out_path}")
+    sample_tag = "_".join(str(idx) for idx in indices)
+
+    out_path = os.path.join(
+        run_out_dir,
+        f"{run_name}_prediction_grid_samples_{sample_tag}.png",
+    )
+
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+
+    print(f"Saved {out_path}")
 
 
 def main():

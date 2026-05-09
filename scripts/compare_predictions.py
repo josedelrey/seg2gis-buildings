@@ -137,7 +137,7 @@ def find_non_empty_mask_indices(dataset, min_mask_pixels):
             break
 
     if mask_paths is not None:
-        print("Checking masks using fast path: direct cv2 mask loading.")
+        print("Checking masks...")
 
         for i, mask_path in enumerate(mask_paths):
             mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)

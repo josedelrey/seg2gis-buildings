@@ -4,6 +4,7 @@ import sys
 
 import cv2
 import torch
+import matplotlib.pyplot as plt
 
 sys.path.append(os.path.abspath("src"))
 
@@ -44,16 +45,21 @@ def parse_args():
     parser.add_argument("--tile_size", type=int, default=256)
     parser.add_argument("--stride", type=int, default=128)
 
-    # Postprocessing (light)
+    # Postprocessing
     parser.add_argument("--min_area", type=int, default=500)
     parser.add_argument("--open_kernel_size", type=int, default=5)
 
-    # Polygon extraction (conservative)
+    # Polygon extraction
     parser.add_argument("--polygon_min_area", type=int, default=150)
     parser.add_argument("--epsilon_ratio", type=float, default=0.005)
 
     parser.add_argument("--out_dir", type=str, default=DEFAULT_OUT_DIR)
     parser.add_argument("--output_name", type=str, default=None)
+
+    # Showcase crop
+    parser.add_argument("--crop_x", type=int, default=None)
+    parser.add_argument("--crop_y", type=int, default=None)
+    parser.add_argument("--crop_size", type=int, default=1024)
 
     return parser.parse_args()
 
@@ -73,7 +79,14 @@ def build_output_paths(out_dir, output_name):
         "prob_png": os.path.join(out_dir, f"{output_name}_prob.png"),
         "raw_mask_png": os.path.join(out_dir, f"{output_name}_mask.png"),
         "clean_mask_png": os.path.join(out_dir, f"{output_name}_clean_mask.png"),
-        "polygon_overlay_png": os.path.join(out_dir, f"{output_name}_polygons_overlay.png"),
+        "polygon_overlay_png": os.path.join(
+            out_dir,
+            f"{output_name}_polygons_overlay.png",
+        ),
+        "showcase_crop_png": os.path.join(
+            out_dir,
+            f"{output_name}_showcase_crop.png",
+        ),
     }
 
 
@@ -90,6 +103,9 @@ def print_config(args):
     print("Postprocess open kernel size:", args.open_kernel_size)
     print("Polygon min area:", args.polygon_min_area)
     print("Polygon epsilon ratio:", args.epsilon_ratio)
+    print("Crop x:", args.crop_x)
+    print("Crop y:", args.crop_y)
+    print("Crop size:", args.crop_size)
 
 
 def run_full_image_inference(args):
@@ -171,13 +187,69 @@ def save_outputs(prob_map, raw_mask, clean_mask, polygon_overlay_rgb, output_pat
     )
 
 
+def save_showcase_crop(
+    image_rgb,
+    prob_map,
+    clean_mask,
+    polygon_overlay_rgb,
+    output_paths,
+    crop_x,
+    crop_y,
+    crop_size,
+):
+    h, w = image_rgb.shape[:2]
+
+    if crop_size < 1:
+        raise ValueError("--crop_size must be at least 1.")
+
+    if crop_x is None:
+        crop_x = max(0, (w - crop_size) // 2)
+
+    if crop_y is None:
+        crop_y = max(0, (h - crop_size) // 2)
+
+    x1 = max(0, crop_x)
+    y1 = max(0, crop_y)
+    x2 = min(w, x1 + crop_size)
+    y2 = min(h, y1 + crop_size)
+
+    image_crop = image_rgb[y1:y2, x1:x2]
+    prob_crop = prob_map[y1:y2, x1:x2]
+    mask_crop = clean_mask[y1:y2, x1:x2]
+    overlay_crop = polygon_overlay_rgb[y1:y2, x1:x2]
+
+    fig, axes = plt.subplots(1, 4, figsize=(16, 4))
+
+    axes[0].imshow(image_crop)
+    axes[0].set_title("Input crop")
+    axes[0].axis("off")
+
+    axes[1].imshow(prob_crop, cmap="gray")
+    axes[1].set_title("Probability map")
+    axes[1].axis("off")
+
+    axes[2].imshow(mask_crop, cmap="gray", interpolation="nearest")
+    axes[2].set_title("Clean mask")
+    axes[2].axis("off")
+
+    axes[3].imshow(overlay_crop)
+    axes[3].set_title("Polygon overlay")
+    axes[3].axis("off")
+
+    plt.tight_layout()
+    plt.savefig(output_paths["showcase_crop_png"], dpi=150)
+    plt.close()
+
+
 def print_saved_outputs(output_paths):
     print()
-    print("Saved probability map:", output_paths["prob_npy"])
-    print("Saved probability preview:", output_paths["prob_png"])
-    print("Saved raw binary mask:", output_paths["raw_mask_png"])
-    print("Saved cleaned binary mask:", output_paths["clean_mask_png"])
-    print("Saved polygon overlay:", output_paths["polygon_overlay_png"])
+    print("Saved probability map:     ", output_paths["prob_npy"])
+    print("Saved probability preview: ", output_paths["prob_png"])
+    print("Saved raw binary mask:     ", output_paths["raw_mask_png"])
+    print("Saved cleaned binary mask: ", output_paths["clean_mask_png"])
+    print("Saved polygon overlay:     ", output_paths["polygon_overlay_png"])
+    print("Saved showcase crop:       ", output_paths["showcase_crop_png"])
+    print()
     print("Done.")
 
 
@@ -217,6 +289,17 @@ def main():
         clean_mask=clean_mask,
         polygon_overlay_rgb=polygon_overlay_rgb,
         output_paths=output_paths,
+    )
+
+    save_showcase_crop(
+        image_rgb=image_rgb,
+        prob_map=prob_map,
+        clean_mask=clean_mask,
+        polygon_overlay_rgb=polygon_overlay_rgb,
+        output_paths=output_paths,
+        crop_x=args.crop_x,
+        crop_y=args.crop_y,
+        crop_size=args.crop_size,
     )
 
     print_saved_outputs(output_paths)
