@@ -113,7 +113,13 @@ def load_models(experiments):
         print(f"Loading {exp['run_name']}...")
 
         model = build_model(exp["architecture"], exp["encoder"]).to(DEVICE)
-        model.load_state_dict(torch.load(exp["model_path"], weights_only=True, map_location=DEVICE))
+        model.load_state_dict(
+            torch.load(
+                exp["model_path"],
+                weights_only=True,
+                map_location=DEVICE,
+            )
+        )
         model.eval()
 
         loaded_models.append({
@@ -146,8 +152,6 @@ def find_non_empty_mask_indices(dataset, min_mask_pixels):
                 print(f"Warning: could not read mask: {mask_path}")
                 continue
 
-            # Must match BuildingDataset:
-            # mask = (mask > 127).astype("float32")
             positive_pixels = np.count_nonzero(mask > 127)
 
             if positive_pixels >= min_mask_pixels:
@@ -221,12 +225,8 @@ def main():
     for out_idx, idx in enumerate(indices):
         img_tensor, mask_tensor = dataset[idx]
 
-        # Normalized tensor for the model.
         img_input = img_tensor.unsqueeze(0).to(DEVICE)
-
-        # Denormalized image only for plotting.
         img = denormalize_image(img_tensor)
-
         gt_mask = mask_tensor[0].cpu().numpy()
 
         predictions = []
@@ -269,7 +269,7 @@ def main():
         fig, axes = plt.subplots(
             n_rows,
             n_cols,
-            figsize=(4 * n_cols, 4 * n_rows),
+            figsize=(4.2 * n_cols, 4.2 * n_rows),
         )
 
         axes = np.array(axes).ravel()
@@ -280,17 +280,28 @@ def main():
             else:
                 ax.imshow(item["data"], cmap="gray", interpolation="nearest")
 
-            ax.set_title(item["title"], fontsize=10)
+            ax.set_title(
+                item["title"],
+                fontsize=18,
+                pad=12,
+            )
             ax.axis("off")
 
         for ax in axes[len(plots):]:
             ax.axis("off")
 
-        plt.tight_layout()
+        plt.subplots_adjust(
+            left=0.03,
+            right=0.97,
+            top=0.95,
+            bottom=0.03,
+            wspace=0.12,
+            hspace=0.22,
+        )
 
         out_path = os.path.join(
             args.out_dir,
-            f"comparison_{out_idx:02d}_sample_{idx}.png"
+            f"comparison_{out_idx:02d}_sample_{idx}.png",
         )
 
         plt.savefig(out_path, dpi=150)

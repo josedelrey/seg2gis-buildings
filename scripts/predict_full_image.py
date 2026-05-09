@@ -51,7 +51,7 @@ def parse_args():
 
     # Polygon extraction
     parser.add_argument("--polygon_min_area", type=int, default=150)
-    parser.add_argument("--epsilon_ratio", type=float, default=0.005)
+    parser.add_argument("--epsilon_ratio", type=float, default=0.002)
 
     parser.add_argument("--out_dir", type=str, default=DEFAULT_OUT_DIR)
     parser.add_argument("--output_name", type=str, default=None)
@@ -218,7 +218,7 @@ def save_showcase_crop(
     mask_crop = clean_mask[y1:y2, x1:x2]
     overlay_crop = polygon_overlay_rgb[y1:y2, x1:x2]
 
-    fig, axes = plt.subplots(1, 4, figsize=(16, 4))
+    fig, axes = plt.subplots(1, 4, figsize=(16, 4.5))
 
     axes[0].imshow(image_crop)
     axes[0].set_title("Input crop")
@@ -236,7 +236,7 @@ def save_showcase_crop(
     axes[3].set_title("Polygon overlay")
     axes[3].axis("off")
 
-    plt.tight_layout()
+    plt.tight_layout(pad=0.6)
     plt.savefig(output_paths["showcase_crop_png"], dpi=150)
     plt.close()
 

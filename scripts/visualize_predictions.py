@@ -39,9 +39,15 @@ def parse_args():
 
     parser.add_argument("--all_models", action="store_true")
 
-    parser.add_argument("--num_samples", type=int, default=8)
+    parser.add_argument("--num_samples", type=int, default=3)
+    parser.add_argument(
+        "--num_grids",
+        type=int,
+        default=1,
+        help="Number of different random prediction grids to generate.",
+    )
     parser.add_argument("--threshold", type=float, default=0.5)
-    parser.add_argument("--min_mask_pixels", type=int, default=1)
+    parser.add_argument("--min_mask_pixels", type=int, default=100)
     parser.add_argument("--seed", type=int, default=42)
 
     parser.add_argument("--models_dir", type=str, default=MODELS_DIR)
@@ -168,6 +174,7 @@ def save_prediction_visualization(
     indices,
     threshold,
     out_dir,
+    grid_idx,
 ):
     run_out_dir = os.path.join(out_dir, run_name)
     os.makedirs(run_out_dir, exist_ok=True)
@@ -178,7 +185,7 @@ def save_prediction_visualization(
     fig, axes = plt.subplots(
         n_rows,
         n_cols,
-        figsize=(14, 4 * n_rows),
+        figsize=(14, 3.2 * n_rows),
     )
 
     if n_rows == 1:
@@ -225,18 +232,20 @@ def save_prediction_visualization(
         )
         axes[row_idx, 3].axis("off")
 
-        axes[row_idx, 0].set_ylabel(
-            f"Sample {idx}",
-            fontsize=10,
-        )
-
-    plt.tight_layout()
+    plt.subplots_adjust(
+        left=0.015,
+        right=0.985,
+        top=0.96,
+        bottom=0.02,
+        wspace=0.04,
+        hspace=0.08,
+    )
 
     sample_tag = "_".join(str(idx) for idx in indices)
 
     out_path = os.path.join(
         run_out_dir,
-        f"{run_name}_prediction_grid_samples_{sample_tag}.png",
+        f"{run_name}_grid_{grid_idx:02d}_samples_{sample_tag}.png",
     )
 
     plt.savefig(out_path, dpi=150)
@@ -247,6 +256,9 @@ def save_prediction_visualization(
 
 def main():
     args = parse_args()
+
+    if args.num_grids < 1:
+        raise ValueError("--num_grids must be at least 1.")
 
     if args.min_mask_pixels < 1:
         raise ValueError("--min_mask_pixels must be at least 1.")
@@ -267,6 +279,7 @@ def main():
     print("Device:", DEVICE)
     print("Prediction threshold:", args.threshold)
     print("Minimum GT mask pixels:", args.min_mask_pixels)
+    print("Number of grids:", args.num_grids)
 
     valid_indices = get_valid_indices(dataset, args.min_mask_pixels)
 
@@ -279,10 +292,6 @@ def main():
     print(f"Found {len(valid_indices)} valid samples.")
 
     num_samples = min(args.num_samples, len(valid_indices))
-    indices = random.sample(valid_indices, num_samples)
-
-    print(f"Using {len(indices)} samples:")
-    print(indices)
 
     experiments = get_experiments(args)
 
@@ -302,17 +311,32 @@ def main():
         print("Encoder:", encoder)
 
         model = build_model(architecture, encoder).to(DEVICE)
-        model.load_state_dict(torch.load(model_path, weights_only=True, map_location=DEVICE))
+        model.load_state_dict(
+            torch.load(
+                model_path,
+                weights_only=True,
+                map_location=DEVICE,
+            )
+        )
         model.eval()
 
-        save_prediction_visualization(
-            model=model,
-            run_name=run_name,
-            dataset=dataset,
-            indices=indices,
-            threshold=args.threshold,
-            out_dir=args.out_dir,
-        )
+        for grid_idx in range(args.num_grids):
+            indices = random.sample(valid_indices, num_samples)
+
+            print()
+            print(f"Grid {grid_idx + 1}/{args.num_grids}")
+            print(f"Using {len(indices)} samples:")
+            print(indices)
+
+            save_prediction_visualization(
+                model=model,
+                run_name=run_name,
+                dataset=dataset,
+                indices=indices,
+                threshold=args.threshold,
+                out_dir=args.out_dir,
+                grid_idx=grid_idx,
+            )
 
         del model
 
