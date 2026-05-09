@@ -411,7 +411,7 @@ def main():
     )
 
     scaler = torch.amp.GradScaler(
-        device="cuda",
+        "cuda",
         enabled=(DEVICE == "cuda"),
     )
 
@@ -483,7 +483,13 @@ def main():
     print(f"\nBest Val Dice @0.5: {best_val_dice:.4f}")
     print(f"Best Epoch: {best_epoch}")
 
-    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+    state_dict = torch.load(
+        model_path,
+        map_location=DEVICE,
+        weights_only=True,
+    )
+
+    model.load_state_dict(state_dict)
 
     best_threshold, best_threshold_val_dice = find_best_threshold(
         model,
