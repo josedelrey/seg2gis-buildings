@@ -26,6 +26,26 @@ The repository currently includes:
 
 The project does not yet include a complete production GIS workflow. The current vector export is a first georeferenced polygonization pass and still needs more work on polygon quality, topology, and validation.
 
+## Visual Proof
+
+Example full-image inference output from the current U-Net + EfficientNet-B3 baseline:
+
+![Building footprint extraction example](./images/building_footprint_showcase.png)
+
+The figure shows an aerial crop, model probability map, post-processed binary mask, and polygon overlay. This is meant as a qualitative snapshot of the current WIP pipeline rather than a final GIS-quality footprint product.
+
+Full-scene mask and polygon overlay from the same inference run:
+
+| Clean building mask | Polygon overlay |
+| --- | --- |
+| ![Full-scene cleaned building mask](./images/austin1_unet_effb3_clean_mask.png) | ![Full-scene polygon overlay](./images/austin1_unet_effb3_polygons_overlay.png) |
+
+Phase 1 model comparison on one validation tile:
+
+![No-augmentation model comparison grid](./images/phase1_noaug_model_comparison.png)
+
+This grid compares the input image and ground truth against predictions from all 14 no-augmentation baseline models.
+
 ## Pipeline
 
 ```mermaid
@@ -120,6 +140,12 @@ scripts/
 results/
   experiments_phase1_noaug_baseline.csv  Baseline no-augmentation experiment results
   experiments_phase2_augmentation.csv    Augmentation experiment log for the next phase
+
+images/
+  austin1_unet_effb3_clean_mask.png      Full-scene cleaned mask example
+  austin1_unet_effb3_polygons_overlay.png Full-scene polygon overlay example
+  building_footprint_showcase.png        README visual example
+  phase1_noaug_model_comparison.png      Phase 1 model comparison example
 ```
 
 ## Environment Setup
