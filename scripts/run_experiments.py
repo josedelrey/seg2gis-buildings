@@ -1,166 +1,186 @@
+import argparse
 import subprocess
+import sys
+from pathlib import Path
+
+import yaml
 
 
-experiments = [
-    {
-        "run_name": "deeplabv3p_effb3_256_noaug_e10",
-        "architecture": "deeplabv3plus",
-        "encoder": "efficientnet-b3",
-        "batch_size": 8,
-        "epochs": 10,
-        "lr": 1e-4,
-        "augmentation_type": "noaug",
-    },
-    {
-        "run_name": "deeplabv3p_mobilenetv2_256_noaug_e10",
-        "architecture": "deeplabv3plus",
-        "encoder": "mobilenet_v2",
-        "batch_size": 8,
-        "epochs": 10,
-        "lr": 1e-4,
-        "augmentation_type": "noaug",
-    },
+DEFAULT_EXPERIMENT_CONFIG = "configs/experiments_phase2_augmentation.yaml"
+
+REQUIRED_EXPERIMENT_FIELDS = [
+    "run_name",
+    "architecture",
+    "encoder",
+    "augmentation_type",
+]
+
+OPTIONAL_TRAIN_ARGS = [
+    "batch_size",
+    "epochs",
+    "lr",
+    "seed",
+    "train_image_dir",
+    "train_mask_dir",
+    "val_image_dir",
+    "val_mask_dir",
+    "model_dir",
+    "experiment_log_path",
 ]
 
 
-# experiments = [
-#     # Longer training, no augmentation: check if current best keeps improving
-#     {
-#         "run_name": "unet_effb3_256_noaug_e30",
-#         "architecture": "unet",
-#         "encoder": "efficientnet-b3",
-#         "batch_size": 8,
-#         "epochs": 30,
-#         "lr": 1e-4,
-#         "augmentation_type": "noaug",
-#     },
-#     {
-#         "run_name": "fpn_effb3_256_noaug_e30",
-#         "architecture": "fpn",
-#         "encoder": "efficientnet-b3",
-#         "batch_size": 8,
-#         "epochs": 30,
-#         "lr": 1e-4,
-#         "augmentation_type": "noaug",
-#     },
-#     {
-#         "run_name": "deeplabv3p_effb3_256_noaug_e30",
-#         "architecture": "deeplabv3plus",
-#         "encoder": "efficientnet-b3",
-#         "batch_size": 8,
-#         "epochs": 30,
-#         "lr": 1e-4,
-#         "augmentation_type": "noaug",
-#     },
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Run a batch of training experiments from a YAML file.",
+    )
+    parser.add_argument(
+        "--experiments_config",
+        type=str,
+        default=DEFAULT_EXPERIMENT_CONFIG,
+        help="YAML file describing experiment defaults and experiment runs.",
+    )
+    parser.add_argument(
+        "--project_config",
+        type=str,
+        default=None,
+        help="Optional JSON project config passed through to src/train.py.",
+    )
+    parser.add_argument(
+        "--dry_run",
+        action="store_true",
+        help="Print commands without running them.",
+    )
+    parser.add_argument(
+        "--fail_fast",
+        action="store_true",
+        help="Stop after the first failed experiment.",
+    )
 
-#     # Same best models with geometric augmentation
-#     {
-#         "run_name": "unet_effb3_256_geomaug_e30",
-#         "architecture": "unet",
-#         "encoder": "efficientnet-b3",
-#         "batch_size": 8,
-#         "epochs": 30,
-#         "lr": 1e-4,
-#         "augmentation_type": "geomaug",
-#     },
-#     {
-#         "run_name": "fpn_effb3_256_geomaug_e30",
-#         "architecture": "fpn",
-#         "encoder": "efficientnet-b3",
-#         "batch_size": 8,
-#         "epochs": 30,
-#         "lr": 1e-4,
-#         "augmentation_type": "geomaug",
-#     },
-#     {
-#         "run_name": "deeplabv3p_effb3_256_geomaug_e30",
-#         "architecture": "deeplabv3plus",
-#         "encoder": "efficientnet-b3",
-#         "batch_size": 8,
-#         "epochs": 30,
-#         "lr": 1e-4,
-#         "augmentation_type": "geomaug",
-#     },
-
-#     # Mild color augmentation: useful for aerial imagery generalization
-#     {
-#         "run_name": "unet_effb3_256_mildaug_e30",
-#         "architecture": "unet",
-#         "encoder": "efficientnet-b3",
-#         "batch_size": 8,
-#         "epochs": 30,
-#         "lr": 1e-4,
-#         "augmentation_type": "mildaug",
-#     },
-#     {
-#         "run_name": "fpn_effb3_256_mildaug_e30",
-#         "architecture": "fpn",
-#         "encoder": "efficientnet-b3",
-#         "batch_size": 8,
-#         "epochs": 30,
-#         "lr": 1e-4,
-#         "augmentation_type": "mildaug",
-#     },
-#     {
-#         "run_name": "deeplabv3p_effb3_256_mildaug_e30",
-#         "architecture": "deeplabv3plus",
-#         "encoder": "efficientnet-b3",
-#         "batch_size": 8,
-#         "epochs": 30,
-#         "lr": 1e-4,
-#         "augmentation_type": "mildaug",
-#     },
-
-#     # Strong augmentation: stress-test robustness
-#     {
-#         "run_name": "unet_effb3_256_strongaug_e30",
-#         "architecture": "unet",
-#         "encoder": "efficientnet-b3",
-#         "batch_size": 8,
-#         "epochs": 30,
-#         "lr": 1e-4,
-#         "augmentation_type": "strongaug",
-#     },
-#     {
-#         "run_name": "fpn_effb3_256_strongaug_e30",
-#         "architecture": "fpn",
-#         "encoder": "efficientnet-b3",
-#         "batch_size": 8,
-#         "epochs": 30,
-#         "lr": 1e-4,
-#         "augmentation_type": "strongaug",
-#     },
-#     {
-#         "run_name": "deeplabv3p_effb3_256_strongaug_e30",
-#         "architecture": "deeplabv3plus",
-#         "encoder": "efficientnet-b3",
-#         "batch_size": 8,
-#         "epochs": 30,
-#         "lr": 1e-4,
-#         "augmentation_type": "strongaug",
-#     },
-# ]
+    return parser.parse_args()
 
 
-for exp in experiments:
-    command = [
-        "python",
-        "src/train.py",
-        "--run_name", exp["run_name"],
-        "--architecture", exp["architecture"],
-        "--encoder", exp["encoder"],
-        "--batch_size", str(exp["batch_size"]),
-        "--epochs", str(exp["epochs"]),
-        "--lr", str(exp["lr"]),
-        "--augmentation_type", exp["augmentation_type"],
+def load_experiment_config(path):
+    config_path = Path(path)
+
+    if not config_path.exists():
+        raise FileNotFoundError(f"Experiment config not found: {config_path}")
+
+    with config_path.open("r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+
+    if not isinstance(config, dict):
+        raise ValueError("Experiment config must be a YAML mapping.")
+
+    experiments = config.get("experiments")
+
+    if not isinstance(experiments, list) or len(experiments) == 0:
+        raise ValueError("Experiment config must contain a non-empty experiments list.")
+
+    return config
+
+
+def merge_defaults(defaults, experiment):
+    merged = dict(defaults)
+    merged.update(experiment)
+    return merged
+
+
+def validate_experiment(exp):
+    missing = [
+        field
+        for field in REQUIRED_EXPERIMENT_FIELDS
+        if exp.get(field) in (None, "")
     ]
 
-    print("\n" + "=" * 80)
-    print("Running experiment:", exp["run_name"])
-    print("=" * 80)
+    if missing:
+        raise ValueError(
+            f"Experiment is missing required fields {missing}: {exp}"
+        )
 
-    try:
-        subprocess.run(command, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"FAILED: {exp['run_name']} with return code {e.returncode}")
-        print("Continuing with next experiment...")
+
+def build_command(exp, project_config):
+    command = [
+        sys.executable,
+        "src/train.py",
+    ]
+
+    if project_config is not None:
+        command.extend(["--config", project_config])
+
+    for field in REQUIRED_EXPERIMENT_FIELDS + OPTIONAL_TRAIN_ARGS:
+        value = exp.get(field)
+
+        if value is None:
+            continue
+
+        command.extend([f"--{field}", str(value)])
+
+    return command
+
+
+def print_command(command):
+    print(" ".join(command))
+
+
+def main():
+    args = parse_args()
+    config = load_experiment_config(args.experiments_config)
+
+    defaults = config.get("defaults", {})
+    if defaults is None:
+        defaults = {}
+
+    if not isinstance(defaults, dict):
+        raise ValueError("defaults must be a mapping when provided.")
+
+    experiments = [
+        merge_defaults(defaults, exp)
+        for exp in config["experiments"]
+    ]
+
+    print("Experiment config:", args.experiments_config)
+    print("Experiments:", len(experiments))
+    print("Dry run:", args.dry_run)
+    print("Fail fast:", args.fail_fast)
+
+    failures = []
+
+    for idx, exp in enumerate(experiments, start=1):
+        validate_experiment(exp)
+        command = build_command(exp, args.project_config)
+
+        print()
+        print("=" * 80)
+        print(f"Experiment {idx}/{len(experiments)}: {exp['run_name']}")
+        print("=" * 80)
+        print_command(command)
+
+        if args.dry_run:
+            continue
+
+        try:
+            subprocess.run(command, check=True)
+        except subprocess.CalledProcessError as e:
+            failures.append((exp["run_name"], e.returncode))
+            print(f"FAILED: {exp['run_name']} with return code {e.returncode}")
+
+            if args.fail_fast:
+                break
+
+            print("Continuing with next experiment...")
+
+    if failures:
+        print()
+        print("Failed experiments:")
+
+        for run_name, return_code in failures:
+            print(f"- {run_name}: return code {return_code}")
+
+        raise SystemExit(1)
+
+    print()
+    print("Done.")
+
+
+if __name__ == "__main__":
+    main()

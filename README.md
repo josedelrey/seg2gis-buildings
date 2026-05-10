@@ -105,6 +105,8 @@ src/
 
 configs/
   default.json      Default data paths, model settings, training settings, and inference settings
+  experiments_phase1_noaug_baseline.yaml  Phase 1 baseline experiment runner config
+  experiments_phase2_augmentation.yaml    Phase 2 augmentation experiment runner config
 
 scripts/
   prepare_tiles.py          Create train / validation / test tiles
@@ -228,6 +230,21 @@ python src/train.py \
   --epochs 10 \
   --lr 0.0001 \
   --augmentation_type noaug
+```
+
+Run a batch of experiments from a YAML file:
+
+```bash
+python scripts/run_experiments.py \
+  --experiments_config configs/experiments_phase2_augmentation.yaml
+```
+
+Preview the generated commands without starting training:
+
+```bash
+python scripts/run_experiments.py \
+  --experiments_config configs/experiments_phase1_noaug_baseline.yaml \
+  --dry_run
 ```
 
 Generate validation prediction grids:
