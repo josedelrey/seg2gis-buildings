@@ -25,7 +25,7 @@ VAL_IMG_DIR = "data/tiles_256/val/images"
 VAL_MASK_DIR = "data/tiles_256/val/masks"
 
 MODELS_DIR = "models"
-EXPERIMENTS_CSV = "outputs/experiments.csv"
+EXPERIMENTS_CSV = "results/experiments_phase2_augmentation.csv"
 OUT_DIR = "outputs/model_comparisons"
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)

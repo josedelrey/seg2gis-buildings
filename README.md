@@ -78,13 +78,19 @@ The current committed experiment table covers no-augmentation runs for several a
 | --- | --- | --- | ---: | ---: | ---: |
 | U-Net | EfficientNet-B3 | none | 10 | 9 | 0.8516 |
 
-The no-augmentation results are saved in:
+The Phase 1 no-augmentation baseline results are saved in:
 
 ```text
-results/experiments_noaug.csv
+results/experiments_phase1_noaug_baseline.csv
 ```
 
-These results should be read as an initial baseline rather than a final benchmark. In the next phase, I plan to rerun the strongest models with geometric, mild color, and stronger augmentation settings to test whether the models generalize better.
+These results should be read as an initial baseline rather than a final benchmark. Phase 2 experiment logs will be written to:
+
+```text
+results/experiments_phase2_augmentation.csv
+```
+
+In the next phase, I plan to rerun the strongest models with geometric, mild color, and stronger augmentation settings to test whether the models generalize better.
 
 ## Repository Structure
 
@@ -110,7 +116,8 @@ scripts/
   augmentation_analysis.py  Visualize augmentation behavior
 
 results/
-  experiments_noaug.csv     Baseline no-augmentation experiment results
+  experiments_phase1_noaug_baseline.csv  Baseline no-augmentation experiment results
+  experiments_phase2_augmentation.csv    Augmentation experiment log for the next phase
 ```
 
 ## Environment Setup

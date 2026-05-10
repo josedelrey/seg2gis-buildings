@@ -420,7 +420,7 @@ def main():
         config,
         "training",
         "experiment_log_path",
-        default="outputs/experiments.csv",
+        default="results/experiments_phase2_augmentation.csv",
     )
 
     model_path = resolve_model_path(model_dir, run_name)

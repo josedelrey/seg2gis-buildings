@@ -27,7 +27,7 @@
     "lr": 0.0001,
     "augmentation_type": "noaug",
     "seed": 42,
-    "experiment_log_path": "outputs/experiments.csv"
+    "experiment_log_path": "results/experiments_phase2_augmentation.csv"
   },
   "inference": {
     "image_path": null,

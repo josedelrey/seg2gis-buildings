@@ -1,0 +1,1 @@
+run_name,architecture,encoder,augmentation_type,epochs,batch_size,lr,best_epoch,best_val_dice_threshold_05,best_val_loss,best_threshold,best_threshold_val_dice,notes
