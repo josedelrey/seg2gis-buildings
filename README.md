@@ -117,7 +117,7 @@ results/
 
 Recommended Python version: Python 3.10 or 3.11.
 
-This project can run on CPU, but training segmentation models is much more practical with a CUDA-capable GPU. If you are using a GPU, install the PyTorch build that matches your CUDA version first. The remaining dependencies are listed in `requirements.txt`.
+This project can run on CPU, but training segmentation models is much more practical with a CUDA-capable GPU. The dependency ranges in `requirements.txt` are bounded so the code runs against compatible library APIs without requiring an export of a local machine-specific environment.
 
 Create and activate a virtual environment:
 
@@ -144,13 +144,20 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-On Windows, the geospatial stack is often more reliable through conda-forge:
+If you are using a CUDA-capable GPU, install the PyTorch / torchvision build that matches your CUDA version first, using the command from the official PyTorch installation selector. Then install the remaining dependencies:
 
 ```bash
-conda install -n cv -c conda-forge rasterio shapely geopandas
+python -m pip install -r requirements.txt
 ```
 
-CUDA note: if the command above installs a CPU-only PyTorch build, reinstall PyTorch with the CUDA wheel recommended for your system by the official PyTorch installation selector, then rerun the remaining install command if needed.
+On Windows, the geospatial stack is often more reliable through conda-forge. In that case, create or activate a conda environment and install the GIS packages from conda-forge before installing the remaining Python packages:
+
+```bash
+conda install -c conda-forge rasterio shapely geopandas
+python -m pip install -r requirements.txt
+```
+
+CUDA note: if `pip install -r requirements.txt` installs a CPU-only PyTorch build, reinstall PyTorch and torchvision with the CUDA wheel recommended for your system, then rerun the requirements command if needed.
 
 Check that Python can import the main libraries:
 
