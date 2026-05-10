@@ -107,12 +107,51 @@ results/
   experiments_noaug.csv     Baseline no-augmentation experiment results
 ```
 
-## Quickstart
+## Environment Setup
 
-Create an environment with the main Python dependencies:
+Recommended Python version: Python 3.10 or 3.11.
+
+This project can run on CPU, but training segmentation models is much more practical with a CUDA-capable GPU. If you are using a GPU, install the PyTorch build that matches your CUDA version first. The remaining dependencies are listed in `requirements.txt`.
+
+Create and activate a virtual environment:
 
 ```bash
-pip install torch torchvision segmentation-models-pytorch albumentations opencv-python matplotlib numpy scikit-learn tqdm
+python -m venv .venv
+```
+
+On Windows PowerShell:
+
+```bash
+.venv\Scripts\Activate.ps1
+```
+
+On macOS / Linux:
+
+```bash
+source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+CUDA note: if the command above installs a CPU-only PyTorch build, reinstall PyTorch with the CUDA wheel recommended for your system by the official PyTorch installation selector, then rerun the remaining install command if needed.
+
+Check that Python can import the main libraries:
+
+```bash
+python -c "import torch, cv2, albumentations, segmentation_models_pytorch; print('torch:', torch.__version__); print('cuda available:', torch.cuda.is_available())"
+```
+
+## Quickstart
+
+The scripts assume the raw dataset is available under:
+
+```text
+data/AerialImageDataset/
 ```
 
 Prepare 256 x 256 tiles:
