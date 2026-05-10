@@ -7,7 +7,6 @@ matplotlib
 numpy
 scikit-learn
 tqdm
-pytest
 rasterio
 shapely
 geopandas

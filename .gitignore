@@ -4,4 +4,4 @@ outputs/
 __pycache__/
 notes.txt
 *.pyc
-.pytest_cache/
+AGENTS.md

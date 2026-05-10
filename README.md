@@ -23,7 +23,6 @@ The repository currently includes:
 - Post-processing for binary masks using connected components and morphological opening.
 - Initial contour extraction and polygon overlay generation.
 - GeoJSON and GeoPackage export using source raster transform / CRS.
-- Smoke tests for dataset loading, post-processing, tiled inference shape preservation, and contour extraction.
 
 The project does not yet include a complete production GIS workflow. The current vector export is a first georeferenced polygonization pass and still needs more work on polygon quality, topology, and validation.
 
@@ -159,12 +158,6 @@ Check that Python can import the main libraries:
 python -c "import torch, cv2, albumentations, segmentation_models_pytorch; print('torch:', torch.__version__); print('cuda available:', torch.cuda.is_available())"
 ```
 
-Run the smoke tests:
-
-```bash
-python -m pytest
-```
-
 ## Configuration
 
 Most project defaults are kept in:
@@ -268,7 +261,6 @@ python scripts/predict_full_image.py \
 ## Current Limitations
 
 - Some visualization scripts still have their own default paths and will be moved to the shared config setup later.
-- The test suite is still intentionally small and focused on smoke coverage.
 - The geospatial vector export is CRS-aware, but polygon boundaries still need quality improvements before being treated as production-grade footprints.
 - The current experiment table only covers the no-augmentation baseline.
 
@@ -277,8 +269,7 @@ python scripts/predict_full_image.py \
 1. Run augmentation experiments with the three best-performing baseline models.
 2. Improve validation reporting with plots, qualitative examples, and clearer comparison tables.
 3. Improve vectorization / polygonization, including cleaner polygon boundaries and geospatial export.
-4. Add lightweight tests for dataset loading, post-processing, tiled inference, and contour extraction.
-5. Move the remaining visualization defaults into the shared config setup.
+4. Move the remaining visualization defaults into the shared config setup.
 
 ## Status
 
