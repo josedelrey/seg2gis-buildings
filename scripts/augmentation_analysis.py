@@ -5,11 +5,12 @@ import argparse
 
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 
 sys.path.append(os.path.abspath("src"))
 
 from dataset import BuildingDataset
-from train import get_train_transform
+from train import IMAGENET_MEAN, IMAGENET_STD, get_train_transform
 
 
 IMG_DIR = "data/tiles_256/train/images"
@@ -40,8 +41,11 @@ def tensor_img_to_uint8(img):
     # CHW -> HWC
     img_np = img.permute(1, 2, 0).cpu().numpy()
 
-    # If image is in [0, 1], convert to [0, 255].
-    # If already [0, 255], just clip.
+    if img_np.min() < 0.0:
+        mean = np.array(IMAGENET_MEAN).reshape(1, 1, 3)
+        std = np.array(IMAGENET_STD).reshape(1, 1, 3)
+        img_np = img_np * std + mean
+
     if img_np.max() <= 1.0:
         img_np = img_np * 255.0
 
@@ -64,6 +68,13 @@ def plot_sample(img, title=""):
     plt.axis("off")
 
 
+def to_display_image(img):
+    if isinstance(img, torch.Tensor):
+        return tensor_img_to_uint8(img)
+
+    return img.clip(0, 255).astype(np.uint8)
+
+
 def main():
     args = parse_args()
 
@@ -81,7 +92,8 @@ def main():
         transform=None,
     )
 
-    indices = random.sample(range(len(dataset)), args.num_samples)
+    num_samples = min(args.num_samples, len(dataset))
+    indices = random.sample(range(len(dataset)), num_samples)
 
     for idx in indices:
         img, mask = dataset[idx]
@@ -104,8 +116,7 @@ def main():
                 aug_mask = mask_np.copy()
             else:
                 augmented = transform(image=img_np, mask=mask_np)
-                aug_img = augmented["image"]
-                aug_mask = augmented["mask"]
+                aug_img = to_display_image(augmented["image"])
 
             plt.sca(axes[i + 1])
             plot_sample(aug_img, title=f"{args.augmentation_type} {i + 1}")

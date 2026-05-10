@@ -4,6 +4,9 @@ from tqdm import tqdm
 
 mask_paths = sorted(glob("data/tiles_256/train/masks/*.png"))
 
+if len(mask_paths) == 0:
+    raise RuntimeError("No mask tiles found in data/tiles_256/train/masks")
+
 empty = 0
 non_empty = 0
 building_pixels = 0
@@ -11,6 +14,10 @@ total_pixels = 0
 
 for p in tqdm(mask_paths):
     mask = cv2.imread(p, cv2.IMREAD_GRAYSCALE)
+
+    if mask is None:
+        raise RuntimeError(f"Could not read mask tile: {p}")
+
     binary = mask > 127
 
     if binary.sum() == 0:

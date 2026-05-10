@@ -22,6 +22,7 @@ The repository currently includes:
 - Full-image tiled inference with overlapping tiles.
 - Post-processing for binary masks using connected components and morphological opening.
 - Initial contour extraction and polygon overlay generation.
+- Smoke tests for dataset loading, post-processing, tiled inference shape preservation, and contour extraction.
 
 The project does not yet include a complete production GIS export workflow. At the moment, polygonization is still pixel-based and mainly used for visualization.
 
@@ -150,6 +151,12 @@ Check that Python can import the main libraries:
 python -c "import torch, cv2, albumentations, segmentation_models_pytorch; print('torch:', torch.__version__); print('cuda available:', torch.cuda.is_available())"
 ```
 
+Run the smoke tests:
+
+```bash
+python -m pytest
+```
+
 ## Configuration
 
 Most project defaults are kept in:
@@ -230,7 +237,7 @@ python scripts/predict_full_image.py \
 ## Current Limitations
 
 - Some visualization scripts still have their own default paths and will be moved to the shared config setup later.
-- There are no automated tests yet.
+- The test suite is still intentionally small and focused on smoke coverage.
 - The vectorization step currently extracts OpenCV contours in pixel coordinates, not CRS-aware GIS geometries.
 - The current experiment table only covers the no-augmentation baseline.
 
