@@ -12,17 +12,11 @@ import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from tqdm import tqdm
 
+from config import DEFAULT_CONFIG_PATH, get_config_value, load_config, resolve_model_path
 from dataset import BuildingDataset
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
-TRAIN_IMG_DIR = "data/tiles_256/train/images"
-TRAIN_MASK_DIR = "data/tiles_256/train/masks"
-VAL_IMG_DIR = "data/tiles_256/val/images"
-VAL_MASK_DIR = "data/tiles_256/val/masks"
-
-LOG_PATH = "outputs/experiments.csv"
 
 CSV_HEADER = [
     "run_name",
@@ -47,24 +41,38 @@ IMAGENET_STD = (0.229, 0.224, 0.225)
 def parse_args():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--run_name", type=str, required=True)
-    parser.add_argument("--architecture", type=str, default="unet")
-    parser.add_argument("--encoder", type=str, required=True)
+    parser.add_argument("--config", type=str, default=DEFAULT_CONFIG_PATH)
 
-    parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--run_name", type=str, default=None)
+    parser.add_argument("--architecture", type=str, default=None)
+    parser.add_argument("--encoder", type=str, default=None)
+
+    parser.add_argument("--batch_size", type=int, default=None)
+    parser.add_argument("--epochs", type=int, default=None)
+    parser.add_argument("--lr", type=float, default=None)
 
     parser.add_argument(
         "--augmentation_type",
         type=str,
-        default="noaug",
+        default=None,
         choices=["noaug", "geomaug", "mildaug", "strongaug"],
     )
 
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--train_image_dir", type=str, default=None)
+    parser.add_argument("--train_mask_dir", type=str, default=None)
+    parser.add_argument("--val_image_dir", type=str, default=None)
+    parser.add_argument("--val_mask_dir", type=str, default=None)
+    parser.add_argument("--model_dir", type=str, default=None)
+    parser.add_argument("--experiment_log_path", type=str, default=None)
 
     return parser.parse_args()
+
+
+def select_value(cli_value, config, *keys, default=None):
+    if cli_value is not None:
+        return cli_value
+    return get_config_value(config, *keys, default=default)
 
 
 def set_seed(seed):
@@ -247,6 +255,7 @@ def find_best_threshold(model, loader, loss_fn):
 
 
 def log_experiment(
+    log_path,
     run_name,
     architecture,
     encoder,
@@ -260,24 +269,26 @@ def log_experiment(
     best_threshold,
     best_threshold_val_dice,
 ):
-    os.makedirs("outputs", exist_ok=True)
+    log_dir = os.path.dirname(log_path)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
 
-    file_exists = os.path.exists(LOG_PATH)
+    file_exists = os.path.exists(log_path)
 
     if file_exists:
-        with open(LOG_PATH, "r", newline="") as f:
+        with open(log_path, "r", newline="") as f:
             reader = csv.reader(f)
             existing_header = next(reader, None)
 
         if existing_header != CSV_HEADER:
             raise ValueError(
-                f"CSV header mismatch in {LOG_PATH}.\n"
+                f"CSV header mismatch in {log_path}.\n"
                 f"Expected: {CSV_HEADER}\n"
                 f"Found:    {existing_header}\n"
                 "Delete the file or update the header before logging this experiment."
             )
 
-    with open(LOG_PATH, "a", newline="") as f:
+    with open(log_path, "a", newline="") as f:
         writer = csv.writer(f)
 
         if not file_exists:
@@ -340,19 +351,81 @@ def build_model(architecture, encoder):
 
 def main():
     args = parse_args()
+    config = load_config(args.config)
 
-    run_name = args.run_name
-    architecture = args.architecture
-    encoder = args.encoder
-    batch_size = args.batch_size
-    epochs = args.epochs
-    lr = args.lr
-    augmentation_type = args.augmentation_type
-    seed = args.seed
+    run_name = select_value(
+        args.run_name,
+        config,
+        "training",
+        "run_name",
+        default="experiment",
+    )
+    architecture = select_value(
+        args.architecture,
+        config,
+        "model",
+        "architecture",
+        default="unet",
+    )
+    encoder = select_value(
+        args.encoder,
+        config,
+        "model",
+        "encoder",
+        default="efficientnet-b3",
+    )
+    batch_size = select_value(args.batch_size, config, "training", "batch_size", default=8)
+    epochs = select_value(args.epochs, config, "training", "epochs", default=10)
+    lr = select_value(args.lr, config, "training", "lr", default=1e-4)
+    augmentation_type = select_value(
+        args.augmentation_type,
+        config,
+        "training",
+        "augmentation_type",
+        default="noaug",
+    )
+    seed = select_value(args.seed, config, "training", "seed", default=42)
 
-    model_path = f"models/{run_name}.pth"
+    train_image_dir = select_value(
+        args.train_image_dir,
+        config,
+        "data",
+        "train_image_dir",
+        default="data/tiles_256/train/images",
+    )
+    train_mask_dir = select_value(
+        args.train_mask_dir,
+        config,
+        "data",
+        "train_mask_dir",
+        default="data/tiles_256/train/masks",
+    )
+    val_image_dir = select_value(
+        args.val_image_dir,
+        config,
+        "data",
+        "val_image_dir",
+        default="data/tiles_256/val/images",
+    )
+    val_mask_dir = select_value(
+        args.val_mask_dir,
+        config,
+        "data",
+        "val_mask_dir",
+        default="data/tiles_256/val/masks",
+    )
+    model_dir = select_value(args.model_dir, config, "model", "model_dir", default="models")
+    log_path = select_value(
+        args.experiment_log_path,
+        config,
+        "training",
+        "experiment_log_path",
+        default="outputs/experiments.csv",
+    )
 
-    os.makedirs("models", exist_ok=True)
+    model_path = resolve_model_path(model_dir, run_name)
+
+    os.makedirs(model_dir, exist_ok=True)
 
     set_seed(seed)
 
@@ -361,17 +434,21 @@ def main():
     print("Architecture:", architecture)
     print("Encoder:", encoder)
     print("Augmentation type:", augmentation_type)
+    print("Train images:", train_image_dir)
+    print("Validation images:", val_image_dir)
+    print("Model path:", model_path)
+    print("Experiment log:", log_path)
     print("Mixed precision:", DEVICE == "cuda")
 
     train_dataset = BuildingDataset(
-        TRAIN_IMG_DIR,
-        TRAIN_MASK_DIR,
+        train_image_dir,
+        train_mask_dir,
         transform=get_train_transform(augmentation_type),
     )
 
     val_dataset = BuildingDataset(
-        VAL_IMG_DIR,
-        VAL_MASK_DIR,
+        val_image_dir,
+        val_mask_dir,
         transform=get_val_transform(),
     )
 
@@ -503,6 +580,7 @@ def main():
     )
 
     log_experiment(
+        log_path=log_path,
         run_name=run_name,
         architecture=architecture,
         encoder=encoder,

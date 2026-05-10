@@ -1,0 +1,48 @@
+{
+  "data": {
+    "raw_train_image_dir": "data/AerialImageDataset/train/images",
+    "raw_train_mask_dir": "data/AerialImageDataset/train/gt",
+    "raw_test_image_dir": "data/AerialImageDataset/test/images",
+    "tile_dir": "data/tiles_256",
+    "train_image_dir": "data/tiles_256/train/images",
+    "train_mask_dir": "data/tiles_256/train/masks",
+    "val_image_dir": "data/tiles_256/val/images",
+    "val_mask_dir": "data/tiles_256/val/masks"
+  },
+  "tiling": {
+    "tile_size": 256,
+    "stride": 256,
+    "val_split": 0.2,
+    "seed": 42
+  },
+  "model": {
+    "architecture": "unet",
+    "encoder": "efficientnet-b3",
+    "model_dir": "models"
+  },
+  "training": {
+    "run_name": "unet_effb3_256_noaug_e10",
+    "batch_size": 8,
+    "epochs": 10,
+    "lr": 0.0001,
+    "augmentation_type": "noaug",
+    "seed": 42,
+    "experiment_log_path": "outputs/experiments.csv"
+  },
+  "inference": {
+    "image_path": null,
+    "model_path": "models/unet_effb3_256_noaug_e10.pth",
+    "threshold": 0.5,
+    "tile_size": 256,
+    "stride": 128,
+    "out_dir": "outputs/full_predictions",
+    "output_name": null,
+    "min_area": 500,
+    "open_kernel_size": 5,
+    "polygon_min_area": 150,
+    "epsilon_ratio": 0.002,
+    "crop_x": null,
+    "crop_y": null,
+    "crop_size": 1024
+  }
+}

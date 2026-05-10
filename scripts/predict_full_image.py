@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 
 sys.path.append(os.path.abspath("src"))
 
+from config import DEFAULT_CONFIG_PATH, get_config_value, load_config
 from gis_utils import (
     load_model,
     load_rgb_image,
@@ -28,40 +29,115 @@ from vectorize import (
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-DEFAULT_OUT_DIR = "outputs/full_predictions"
-
 
 def parse_args():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--image_path", type=str, required=True)
-    parser.add_argument("--model_path", type=str, required=True)
+    parser.add_argument("--config", type=str, default=DEFAULT_CONFIG_PATH)
 
-    parser.add_argument("--architecture", type=str, required=True)
-    parser.add_argument("--encoder", type=str, required=True)
+    parser.add_argument("--image_path", type=str, default=None)
+    parser.add_argument("--model_path", type=str, default=None)
 
-    parser.add_argument("--threshold", type=float, default=0.5)
+    parser.add_argument("--architecture", type=str, default=None)
+    parser.add_argument("--encoder", type=str, default=None)
 
-    parser.add_argument("--tile_size", type=int, default=256)
-    parser.add_argument("--stride", type=int, default=128)
+    parser.add_argument("--threshold", type=float, default=None)
+
+    parser.add_argument("--tile_size", type=int, default=None)
+    parser.add_argument("--stride", type=int, default=None)
 
     # Postprocessing
-    parser.add_argument("--min_area", type=int, default=500)
-    parser.add_argument("--open_kernel_size", type=int, default=5)
+    parser.add_argument("--min_area", type=int, default=None)
+    parser.add_argument("--open_kernel_size", type=int, default=None)
 
     # Polygon extraction
-    parser.add_argument("--polygon_min_area", type=int, default=150)
-    parser.add_argument("--epsilon_ratio", type=float, default=0.002)
+    parser.add_argument("--polygon_min_area", type=int, default=None)
+    parser.add_argument("--epsilon_ratio", type=float, default=None)
 
-    parser.add_argument("--out_dir", type=str, default=DEFAULT_OUT_DIR)
+    parser.add_argument("--out_dir", type=str, default=None)
     parser.add_argument("--output_name", type=str, default=None)
 
     # Showcase crop
     parser.add_argument("--crop_x", type=int, default=None)
     parser.add_argument("--crop_y", type=int, default=None)
-    parser.add_argument("--crop_size", type=int, default=1024)
+    parser.add_argument("--crop_size", type=int, default=None)
 
     return parser.parse_args()
+
+
+def select_value(cli_value, config, *keys, default=None):
+    if cli_value is not None:
+        return cli_value
+    return get_config_value(config, *keys, default=default)
+
+
+def apply_config(args, config):
+    args.image_path = select_value(args.image_path, config, "inference", "image_path")
+    args.model_path = select_value(
+        args.model_path,
+        config,
+        "inference",
+        "model_path",
+        default="models/unet_effb3_256_noaug_e10.pth",
+    )
+    args.architecture = select_value(
+        args.architecture,
+        config,
+        "model",
+        "architecture",
+        default="unet",
+    )
+    args.encoder = select_value(
+        args.encoder,
+        config,
+        "model",
+        "encoder",
+        default="efficientnet-b3",
+    )
+    args.threshold = select_value(args.threshold, config, "inference", "threshold", default=0.5)
+    args.tile_size = select_value(args.tile_size, config, "inference", "tile_size", default=256)
+    args.stride = select_value(args.stride, config, "inference", "stride", default=128)
+    args.min_area = select_value(args.min_area, config, "inference", "min_area", default=500)
+    args.open_kernel_size = select_value(
+        args.open_kernel_size,
+        config,
+        "inference",
+        "open_kernel_size",
+        default=5,
+    )
+    args.polygon_min_area = select_value(
+        args.polygon_min_area,
+        config,
+        "inference",
+        "polygon_min_area",
+        default=150,
+    )
+    args.epsilon_ratio = select_value(
+        args.epsilon_ratio,
+        config,
+        "inference",
+        "epsilon_ratio",
+        default=0.002,
+    )
+    args.out_dir = select_value(
+        args.out_dir,
+        config,
+        "inference",
+        "out_dir",
+        default="outputs/full_predictions",
+    )
+    args.output_name = select_value(args.output_name, config, "inference", "output_name")
+    args.crop_x = select_value(args.crop_x, config, "inference", "crop_x")
+    args.crop_y = select_value(args.crop_y, config, "inference", "crop_y")
+    args.crop_size = select_value(args.crop_size, config, "inference", "crop_size", default=1024)
+
+    if args.image_path is None:
+        raise ValueError(
+            "No input image was provided. Set inference.image_path in the config "
+            "or pass --image_path."
+        )
+
+    return args
 
 
 def get_output_name(image_path, output_name):
@@ -255,6 +331,8 @@ def print_saved_outputs(output_paths):
 
 def main():
     args = parse_args()
+    config = load_config(args.config)
+    args = apply_config(args, config)
 
     os.makedirs(args.out_dir, exist_ok=True)
 

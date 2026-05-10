@@ -88,11 +88,15 @@ These results should be read as an initial baseline rather than a final benchmar
 
 ```text
 src/
+  config.py         Small JSON config loader used by scripts
   dataset.py        Dataset wrapper for image / mask tiles
   train.py          Training, validation, threshold tuning, experiment logging
   gis_utils.py      Model loading and tiled full-image inference helpers
   postprocess.py    Binary mask cleanup utilities
   vectorize.py      Initial contour extraction and polygon overlay utilities
+
+configs/
+  default.json      Default data paths, model settings, training settings, and inference settings
 
 scripts/
   prepare_tiles.py          Create train / validation / test tiles
@@ -146,6 +150,36 @@ Check that Python can import the main libraries:
 python -c "import torch, cv2, albumentations, segmentation_models_pytorch; print('torch:', torch.__version__); print('cuda available:', torch.cuda.is_available())"
 ```
 
+## Configuration
+
+Most project defaults are kept in:
+
+```text
+configs/default.json
+```
+
+The config stores the main data paths, tiling settings, model architecture, encoder, training defaults, inference threshold, tile size, stride, and output directories. The scripts load this file by default, and command-line arguments can still override individual values.
+
+For example, this uses the default config:
+
+```bash
+python src/train.py
+```
+
+This uses the default config but overrides the run name and augmentation type:
+
+```bash
+python src/train.py \
+  --run_name unet_effb3_256_geomaug_e10 \
+  --augmentation_type geomaug
+```
+
+To use another config file:
+
+```bash
+python src/train.py --config configs/my_experiment.json
+```
+
 ## Quickstart
 
 The scripts assume the raw dataset is available under:
@@ -157,13 +191,14 @@ data/AerialImageDataset/
 Prepare 256 x 256 tiles:
 
 ```bash
-python scripts/prepare_tiles.py
+python scripts/prepare_tiles.py --config configs/default.json
 ```
 
 Train a model:
 
 ```bash
 python src/train.py \
+  --config configs/default.json \
   --run_name unet_effb3_256_noaug_e10 \
   --architecture unet \
   --encoder efficientnet-b3 \
@@ -187,30 +222,25 @@ Run full-image tiled inference:
 
 ```bash
 python scripts/predict_full_image.py \
+  --config configs/default.json \
   --image_path data/AerialImageDataset/test/images/example.tif \
-  --model_path models/unet_effb3_256_noaug_e10.pth \
-  --architecture unet \
-  --encoder efficientnet-b3 \
-  --threshold 0.5 \
-  --tile_size 256 \
-  --stride 128
+  --model_path models/unet_effb3_256_noaug_e10.pth
 ```
 
 ## Current Limitations
 
-- The project still uses hardcoded default paths in several scripts.
-- There is no packaged environment file yet.
+- Some visualization scripts still have their own default paths and will be moved to the shared config setup later.
 - There are no automated tests yet.
 - The vectorization step currently extracts OpenCV contours in pixel coordinates, not CRS-aware GIS geometries.
 - The current experiment table only covers the no-augmentation baseline.
 
 ## Next Phases
 
-1. Add an environment file and make the scripts easier to reproduce on a fresh machine.
-2. Run augmentation experiments with the three best-performing baseline models.
-3. Improve validation reporting with plots, qualitative examples, and clearer comparison tables.
-4. Improve vectorization / polygonization, including cleaner polygon boundaries and geospatial export.
-5. Add lightweight tests for dataset loading, post-processing, tiled inference, and contour extraction.
+1. Run augmentation experiments with the three best-performing baseline models.
+2. Improve validation reporting with plots, qualitative examples, and clearer comparison tables.
+3. Improve vectorization / polygonization, including cleaner polygon boundaries and geospatial export.
+4. Add lightweight tests for dataset loading, post-processing, tiled inference, and contour extraction.
+5. Move the remaining visualization defaults into the shared config setup.
 
 ## Status
 

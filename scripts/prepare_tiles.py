@@ -1,53 +1,64 @@
+import argparse
 import os
+import sys
+from glob import glob
+
 import cv2
 import numpy as np
-from glob import glob
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
-# Suppress OpenCV GeoTIFF metadata warnings
+sys.path.append(os.path.abspath("src"))
+
+from config import DEFAULT_CONFIG_PATH, get_config_value, load_config
+
+
+# Suppress OpenCV GeoTIFF metadata warnings.
 try:
     cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
-except:
+except AttributeError:
     pass
 
-# -----------------------
-# CONFIG
-# -----------------------
-IMG_DIR = "data/AerialImageDataset/train/images"
-MASK_DIR = "data/AerialImageDataset/train/gt"
-TEST_IMG_DIR = "data/AerialImageDataset/test/images"
 
-OUT_DIR = "data/tiles_256"
+def parse_args():
+    parser = argparse.ArgumentParser()
 
-TILE_SIZE = 256
-STRIDE = 256  # no overlap
+    parser.add_argument("--config", type=str, default=DEFAULT_CONFIG_PATH)
+    parser.add_argument("--image_dir", type=str, default=None)
+    parser.add_argument("--mask_dir", type=str, default=None)
+    parser.add_argument("--test_image_dir", type=str, default=None)
+    parser.add_argument("--out_dir", type=str, default=None)
+    parser.add_argument("--tile_size", type=int, default=None)
+    parser.add_argument("--stride", type=int, default=None)
+    parser.add_argument("--val_split", type=float, default=None)
+    parser.add_argument("--seed", type=int, default=None)
 
-VAL_SPLIT = 0.2
-SEED = 42
+    return parser.parse_args()
 
-# -----------------------
-# CREATE OUTPUT FOLDERS
-# -----------------------
-def make_dirs():
+
+def select_value(cli_value, config, *keys, default=None):
+    if cli_value is not None:
+        return cli_value
+    return get_config_value(config, *keys, default=default)
+
+
+def make_dirs(out_dir):
     for split in ["train", "val"]:
-        os.makedirs(os.path.join(OUT_DIR, split, "images"), exist_ok=True)
-        os.makedirs(os.path.join(OUT_DIR, split, "masks"), exist_ok=True)
+        os.makedirs(os.path.join(out_dir, split, "images"), exist_ok=True)
+        os.makedirs(os.path.join(out_dir, split, "masks"), exist_ok=True)
 
-    os.makedirs(os.path.join(OUT_DIR, "test", "images"), exist_ok=True)
+    os.makedirs(os.path.join(out_dir, "test", "images"), exist_ok=True)
 
-# -----------------------
-# GET FILE LISTS
-# -----------------------
-def get_train_files():
-    images = sorted(glob(os.path.join(IMG_DIR, "*.tif")))
-    masks = sorted(glob(os.path.join(MASK_DIR, "*.tif")))
+
+def get_train_files(image_dir, mask_dir):
+    images = sorted(glob(os.path.join(image_dir, "*.tif")))
+    masks = sorted(glob(os.path.join(mask_dir, "*.tif")))
 
     if len(images) == 0:
-        raise RuntimeError(f"No training images found in: {IMG_DIR}")
+        raise RuntimeError(f"No training images found in: {image_dir}")
 
     if len(masks) == 0:
-        raise RuntimeError(f"No masks found in: {MASK_DIR}")
+        raise RuntimeError(f"No masks found in: {mask_dir}")
 
     if len(images) != len(masks):
         raise RuntimeError(
@@ -58,18 +69,16 @@ def get_train_files():
     return images, masks
 
 
-def get_test_files():
-    test_images = sorted(glob(os.path.join(TEST_IMG_DIR, "*.tif")))
+def get_test_files(test_image_dir):
+    test_images = sorted(glob(os.path.join(test_image_dir, "*.tif")))
 
     if len(test_images) == 0:
-        print(f"Warning: no test images found in: {TEST_IMG_DIR}")
+        print(f"Warning: no test images found in: {test_image_dir}")
 
     return test_images
 
-# -----------------------
-# TILE FUNCTIONS
-# -----------------------
-def tile_image_and_mask(img, mask, tile_size=256, stride=256):
+
+def tile_image_and_mask(img, mask, tile_size, stride):
     tiles = []
     h, w = img.shape[:2]
 
@@ -84,7 +93,7 @@ def tile_image_and_mask(img, mask, tile_size=256, stride=256):
     return tiles
 
 
-def tile_image_only(img, tile_size=256, stride=256):
+def tile_image_only(img, tile_size, stride):
     tiles = []
     h, w = img.shape[:2]
 
@@ -97,22 +106,20 @@ def tile_image_only(img, tile_size=256, stride=256):
 
     return tiles
 
-# -----------------------
-# PROCESS TRAIN / VAL
-# -----------------------
-def process_train_val():
-    images, masks = get_train_files()
+
+def process_train_val(image_dir, mask_dir, out_dir, tile_size, stride, val_split, seed):
+    images, masks = get_train_files(image_dir, mask_dir)
 
     train_imgs, val_imgs, train_masks, val_masks = train_test_split(
         images,
         masks,
-        test_size=VAL_SPLIT,
-        random_state=SEED
+        test_size=val_split,
+        random_state=seed,
     )
 
     split_data = {
         "train": (train_imgs, train_masks),
-        "val": (val_imgs, val_masks)
+        "val": (val_imgs, val_masks),
     }
 
     for split, (img_list, mask_list) in split_data.items():
@@ -123,7 +130,7 @@ def process_train_val():
         for img_path, mask_path in tqdm(
             list(zip(img_list, mask_list)),
             desc=f"{split}",
-            unit="img"
+            unit="img",
         ):
             img = cv2.imread(img_path)
             mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
@@ -137,14 +144,13 @@ def process_train_val():
             mask = (mask > 127).astype(np.uint8) * 255
 
             base_name = os.path.splitext(os.path.basename(img_path))[0]
-
-            tiles = tile_image_and_mask(img, mask, TILE_SIZE, STRIDE)
+            tiles = tile_image_and_mask(img, mask, tile_size, stride)
 
             for tile_img, tile_mask, y, x in tiles:
                 name = f"{base_name}_y{y:04d}_x{x:04d}.png"
 
-                out_img_path = os.path.join(OUT_DIR, split, "images", name)
-                out_mask_path = os.path.join(OUT_DIR, split, "masks", name)
+                out_img_path = os.path.join(out_dir, split, "images", name)
+                out_mask_path = os.path.join(out_dir, split, "masks", name)
 
                 cv2.imwrite(out_img_path, tile_img)
                 cv2.imwrite(out_mask_path, tile_mask)
@@ -153,46 +159,76 @@ def process_train_val():
 
         print(f"{split} done. Saved {total_tiles} tiles.")
 
-# -----------------------
-# PROCESS TEST
-# -----------------------
-def process_test():
-    test_images = get_test_files()
+
+def process_test(test_image_dir, out_dir, tile_size, stride):
+    test_images = get_test_files(test_image_dir)
 
     print("Processing test set...")
 
     total_tiles = 0
 
-    for img_path in tqdm(
-        test_images,
-        desc="test",
-        unit="img"
-    ):
+    for img_path in tqdm(test_images, desc="test", unit="img"):
         img = cv2.imread(img_path)
 
         if img is None:
             raise RuntimeError(f"Could not read test image: {img_path}")
 
         base_name = os.path.splitext(os.path.basename(img_path))[0]
-
-        tiles = tile_image_only(img, TILE_SIZE, STRIDE)
+        tiles = tile_image_only(img, tile_size, stride)
 
         for tile_img, y, x in tiles:
             name = f"{base_name}_y{y:04d}_x{x:04d}.png"
-            out_img_path = os.path.join(OUT_DIR, "test", "images", name)
+            out_img_path = os.path.join(out_dir, "test", "images", name)
             cv2.imwrite(out_img_path, tile_img)
 
         total_tiles += len(tiles)
 
     print(f"test done. Saved {total_tiles} tiles.")
 
-# -----------------------
-# MAIN
-# -----------------------
+
 def main():
-    make_dirs()
-    process_train_val()
-    process_test()
+    args = parse_args()
+    config = load_config(args.config)
+
+    image_dir = select_value(
+        args.image_dir,
+        config,
+        "data",
+        "raw_train_image_dir",
+        default="data/AerialImageDataset/train/images",
+    )
+    mask_dir = select_value(
+        args.mask_dir,
+        config,
+        "data",
+        "raw_train_mask_dir",
+        default="data/AerialImageDataset/train/gt",
+    )
+    test_image_dir = select_value(
+        args.test_image_dir,
+        config,
+        "data",
+        "raw_test_image_dir",
+        default="data/AerialImageDataset/test/images",
+    )
+    out_dir = select_value(args.out_dir, config, "data", "tile_dir", default="data/tiles_256")
+    tile_size = select_value(args.tile_size, config, "tiling", "tile_size", default=256)
+    stride = select_value(args.stride, config, "tiling", "stride", default=256)
+    val_split = select_value(args.val_split, config, "tiling", "val_split", default=0.2)
+    seed = select_value(args.seed, config, "tiling", "seed", default=42)
+
+    print("Image dir:", image_dir)
+    print("Mask dir:", mask_dir)
+    print("Test image dir:", test_image_dir)
+    print("Output dir:", out_dir)
+    print("Tile size:", tile_size)
+    print("Stride:", stride)
+    print("Validation split:", val_split)
+    print("Seed:", seed)
+
+    make_dirs(out_dir)
+    process_train_val(image_dir, mask_dir, out_dir, tile_size, stride, val_split, seed)
+    process_test(test_image_dir, out_dir, tile_size, stride)
     print("All tiling completed.")
 
 
