@@ -24,6 +24,7 @@ from vectorize import (
     mask_to_contours,
     simplify_contours,
     draw_polygons_on_image,
+    save_vector_polygons,
 )
 
 
@@ -53,6 +54,9 @@ def parse_args():
     # Polygon extraction
     parser.add_argument("--polygon_min_area", type=int, default=None)
     parser.add_argument("--epsilon_ratio", type=float, default=None)
+    parser.add_argument("--export_vectors", action="store_true", default=None)
+    parser.add_argument("--no_export_vectors", action="store_true")
+    parser.add_argument("--vector_min_area", type=float, default=None)
 
     parser.add_argument("--out_dir", type=str, default=None)
     parser.add_argument("--output_name", type=str, default=None)
@@ -112,6 +116,13 @@ def apply_config(args, config):
         "polygon_min_area",
         default=150,
     )
+    args.vector_min_area = select_value(
+        args.vector_min_area,
+        config,
+        "inference",
+        "vector_min_area",
+        default=args.polygon_min_area,
+    )
     args.epsilon_ratio = select_value(
         args.epsilon_ratio,
         config,
@@ -130,6 +141,16 @@ def apply_config(args, config):
     args.crop_x = select_value(args.crop_x, config, "inference", "crop_x")
     args.crop_y = select_value(args.crop_y, config, "inference", "crop_y")
     args.crop_size = select_value(args.crop_size, config, "inference", "crop_size", default=1024)
+    args.export_vectors = select_value(
+        args.export_vectors,
+        config,
+        "inference",
+        "export_vectors",
+        default=True,
+    )
+
+    if args.no_export_vectors:
+        args.export_vectors = False
 
     if args.image_path is None:
         raise ValueError(
@@ -163,6 +184,14 @@ def build_output_paths(out_dir, output_name):
             out_dir,
             f"{output_name}_showcase_crop.png",
         ),
+        "polygons_geojson": os.path.join(
+            out_dir,
+            f"{output_name}_buildings.geojson",
+        ),
+        "polygons_gpkg": os.path.join(
+            out_dir,
+            f"{output_name}_buildings.gpkg",
+        ),
     }
 
 
@@ -178,7 +207,9 @@ def print_config(args):
     print("Postprocess min area:", args.min_area)
     print("Postprocess open kernel size:", args.open_kernel_size)
     print("Polygon min area:", args.polygon_min_area)
+    print("Vector min area:", args.vector_min_area)
     print("Polygon epsilon ratio:", args.epsilon_ratio)
+    print("Export GIS vectors:", args.export_vectors)
     print("Crop x:", args.crop_x)
     print("Crop y:", args.crop_y)
     print("Crop size:", args.crop_size)
@@ -261,6 +292,27 @@ def save_outputs(prob_map, raw_mask, clean_mask, polygon_overlay_rgb, output_pat
         output_paths["polygon_overlay_png"],
         polygon_overlay_bgr,
     )
+
+
+def save_vector_outputs(args, clean_mask, output_paths):
+    if not args.export_vectors:
+        return None
+
+    gdf = save_vector_polygons(
+        mask=clean_mask,
+        raster_path=args.image_path,
+        out_path=output_paths["polygons_geojson"],
+        min_area=args.vector_min_area,
+    )
+
+    save_vector_polygons(
+        mask=clean_mask,
+        raster_path=args.image_path,
+        out_path=output_paths["polygons_gpkg"],
+        min_area=args.vector_min_area,
+    )
+
+    return gdf
 
 
 def save_showcase_crop(
@@ -369,6 +421,12 @@ def main():
         output_paths=output_paths,
     )
 
+    vector_gdf = save_vector_outputs(
+        args=args,
+        clean_mask=clean_mask,
+        output_paths=output_paths,
+    )
+
     save_showcase_crop(
         image_rgb=image_rgb,
         prob_map=prob_map,
@@ -381,6 +439,11 @@ def main():
     )
 
     print_saved_outputs(output_paths)
+
+    if vector_gdf is not None:
+        print("Saved GIS polygons:        ", output_paths["polygons_geojson"])
+        print("Saved GIS polygons:        ", output_paths["polygons_gpkg"])
+        print("Vector polygon count:      ", len(vector_gdf))
 
 
 if __name__ == "__main__":

@@ -22,9 +22,10 @@ The repository currently includes:
 - Full-image tiled inference with overlapping tiles.
 - Post-processing for binary masks using connected components and morphological opening.
 - Initial contour extraction and polygon overlay generation.
+- GeoJSON and GeoPackage export using source raster transform / CRS.
 - Smoke tests for dataset loading, post-processing, tiled inference shape preservation, and contour extraction.
 
-The project does not yet include a complete production GIS export workflow. At the moment, polygonization is still pixel-based and mainly used for visualization.
+The project does not yet include a complete production GIS workflow. The current vector export is a first georeferenced polygonization pass and still needs more work on polygon quality, topology, and validation.
 
 ## Pipeline
 
@@ -37,6 +38,7 @@ flowchart LR
     E --> F["Tiled inference on larger images"]
     F --> G["Mask thresholding and post-processing"]
     G --> H["Contour simplification and polygon overlay"]
+    G --> I["GeoJSON / GeoPackage export"]
 ```
 
 ## Dataset
@@ -94,7 +96,7 @@ src/
   train.py          Training, validation, threshold tuning, experiment logging
   gis_utils.py      Model loading and tiled full-image inference helpers
   postprocess.py    Binary mask cleanup utilities
-  vectorize.py      Initial contour extraction and polygon overlay utilities
+  vectorize.py      Contour extraction, polygon overlay, and geospatial vector export utilities
 
 configs/
   default.json      Default data paths, model settings, training settings, and inference settings
@@ -143,6 +145,12 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
+On Windows, the geospatial stack is often more reliable through conda-forge:
+
+```bash
+conda install -n cv -c conda-forge rasterio shapely geopandas
+```
+
 CUDA note: if the command above installs a CPU-only PyTorch build, reinstall PyTorch with the CUDA wheel recommended for your system by the official PyTorch installation selector, then rerun the remaining install command if needed.
 
 Check that Python can import the main libraries:
@@ -165,7 +173,7 @@ Most project defaults are kept in:
 configs/default.json
 ```
 
-The config stores the main data paths, tiling settings, model architecture, encoder, training defaults, inference threshold, tile size, stride, and output directories. The scripts load this file by default, and command-line arguments can still override individual values.
+The config stores the main data paths, tiling settings, model architecture, encoder, training defaults, inference threshold, tile size, stride, vector export settings, and output directories. The scripts load this file by default, and command-line arguments can still override individual values.
 
 For example, this uses the default config:
 
@@ -234,11 +242,34 @@ python scripts/predict_full_image.py \
   --model_path models/unet_effb3_256_noaug_e10.pth
 ```
 
+This writes raster-style prediction outputs, a showcase crop, a polygon overlay, and GIS vector outputs:
+
+```text
+outputs/full_predictions/
+  <name>_prob.npy
+  <name>_prob.png
+  <name>_mask.png
+  <name>_clean_mask.png
+  <name>_polygons_overlay.png
+  <name>_showcase_crop.png
+  <name>_buildings.geojson
+  <name>_buildings.gpkg
+```
+
+The GeoJSON and GeoPackage files use the input raster's transform and CRS through `rasterio`, `shapely`, and `geopandas`. Vector export can be disabled with:
+
+```bash
+python scripts/predict_full_image.py \
+  --config configs/default.json \
+  --image_path data/AerialImageDataset/test/images/example.tif \
+  --no_export_vectors
+```
+
 ## Current Limitations
 
 - Some visualization scripts still have their own default paths and will be moved to the shared config setup later.
 - The test suite is still intentionally small and focused on smoke coverage.
-- The vectorization step currently extracts OpenCV contours in pixel coordinates, not CRS-aware GIS geometries.
+- The geospatial vector export is CRS-aware, but polygon boundaries still need quality improvements before being treated as production-grade footprints.
 - The current experiment table only covers the no-augmentation baseline.
 
 ## Next Phases

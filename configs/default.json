@@ -40,7 +40,9 @@
     "min_area": 500,
     "open_kernel_size": 5,
     "polygon_min_area": 150,
+    "vector_min_area": 150,
     "epsilon_ratio": 0.002,
+    "export_vectors": true,
     "crop_x": null,
     "crop_y": null,
     "crop_size": 1024
