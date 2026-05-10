@@ -4,39 +4,14 @@ import os
 import cv2
 import numpy as np
 import torch
-import segmentation_models_pytorch as smp
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from tqdm import tqdm
 
+from models import build_model
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
-
-
-def build_model(architecture, encoder):
-    architecture = architecture.lower()
-
-    common_args = {
-        "encoder_name": encoder,
-        "encoder_weights": None,
-        "in_channels": 3,
-        "classes": 1,
-    }
-
-    if architecture == "unet":
-        return smp.Unet(**common_args)
-
-    if architecture == "fpn":
-        return smp.FPN(**common_args)
-
-    if architecture == "deeplabv3plus":
-        return smp.DeepLabV3Plus(**common_args)
-
-    if architecture == "pspnet":
-        return smp.PSPNet(**common_args)
-
-    raise ValueError(f"Unsupported architecture: {architecture}")
 
 
 def load_model(model_path, architecture, encoder, device):

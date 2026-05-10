@@ -7,7 +7,6 @@ import sys
 import cv2
 import torch
 import matplotlib.pyplot as plt
-import segmentation_models_pytorch as smp
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
@@ -15,6 +14,7 @@ sys.path.append(os.path.abspath("src"))
 
 from dataset import BuildingDataset
 from gis_utils import denormalize_image
+from models import build_model
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -62,31 +62,6 @@ def get_val_transform():
         A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
         ToTensorV2(),
     ])
-
-
-def build_model(architecture, encoder):
-    architecture = architecture.lower()
-
-    common_args = {
-        "encoder_name": encoder,
-        "encoder_weights": None,
-        "in_channels": 3,
-        "classes": 1,
-    }
-
-    if architecture == "unet":
-        return smp.Unet(**common_args)
-
-    if architecture == "fpn":
-        return smp.FPN(**common_args)
-
-    if architecture == "deeplabv3plus":
-        return smp.DeepLabV3Plus(**common_args)
-
-    if architecture == "pspnet":
-        return smp.PSPNet(**common_args)
-
-    raise ValueError(f"Unsupported architecture: {architecture}")
 
 
 def get_valid_indices(dataset, min_mask_pixels):

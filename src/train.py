@@ -14,6 +14,7 @@ from tqdm import tqdm
 
 from config import DEFAULT_CONFIG_PATH, get_config_value, load_config, resolve_model_path
 from dataset import BuildingDataset
+from models import build_model
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -311,44 +312,6 @@ def log_experiment(
         ])
 
 
-def build_model(architecture, encoder):
-    architecture = architecture.lower()
-
-    if architecture == "unet":
-        return smp.Unet(
-            encoder_name=encoder,
-            encoder_weights="imagenet",
-            in_channels=3,
-            classes=1,
-        )
-
-    if architecture == "fpn":
-        return smp.FPN(
-            encoder_name=encoder,
-            encoder_weights="imagenet",
-            in_channels=3,
-            classes=1,
-        )
-
-    if architecture == "deeplabv3plus":
-        return smp.DeepLabV3Plus(
-            encoder_name=encoder,
-            encoder_weights="imagenet",
-            in_channels=3,
-            classes=1,
-        )
-
-    if architecture == "pspnet":
-        return smp.PSPNet(
-            encoder_name=encoder,
-            encoder_weights="imagenet",
-            in_channels=3,
-            classes=1,
-        )
-
-    raise ValueError(f"Unsupported architecture: {architecture}")
-
-
 def main():
     args = parse_args()
     config = load_config(args.config)
@@ -470,7 +433,11 @@ def main():
         persistent_workers=True,
     )
 
-    model = build_model(architecture, encoder).to(DEVICE)
+    model = build_model(
+        architecture,
+        encoder,
+        encoder_weights="imagenet",
+    ).to(DEVICE)
 
     dice_loss = smp.losses.DiceLoss(mode="binary")
     bce_loss = torch.nn.BCEWithLogitsLoss()
