@@ -195,27 +195,36 @@ def main():
         config,
         "data",
         "raw_train_image_dir",
-        default="data/AerialImageDataset/train/images",
     )
     mask_dir = select_value(
         args.mask_dir,
         config,
         "data",
         "raw_train_mask_dir",
-        default="data/AerialImageDataset/train/gt",
     )
     test_image_dir = select_value(
         args.test_image_dir,
         config,
         "data",
         "raw_test_image_dir",
-        default="data/AerialImageDataset/test/images",
     )
-    out_dir = select_value(args.out_dir, config, "data", "tile_dir", default="data/tiles_256")
+    out_dir = select_value(args.out_dir, config, "data", "tile_dir")
     tile_size = select_value(args.tile_size, config, "tiling", "tile_size", default=256)
     stride = select_value(args.stride, config, "tiling", "stride", default=256)
     val_split = select_value(args.val_split, config, "tiling", "val_split", default=0.2)
     seed = select_value(args.seed, config, "tiling", "seed", default=42)
+
+    if image_dir is None:
+        raise ValueError("No raw training image directory provided. Set data.raw_train_image_dir or pass --image_dir.")
+
+    if mask_dir is None:
+        raise ValueError("No raw training mask directory provided. Set data.raw_train_mask_dir or pass --mask_dir.")
+
+    if test_image_dir is None:
+        raise ValueError("No test image directory provided. Set data.raw_test_image_dir or pass --test_image_dir.")
+
+    if out_dir is None:
+        raise ValueError("No tile output directory provided. Set data.tile_dir or pass --out_dir.")
 
     print("Image dir:", image_dir)
     print("Mask dir:", mask_dir)

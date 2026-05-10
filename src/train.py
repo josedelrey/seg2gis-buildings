@@ -354,28 +354,24 @@ def main():
         config,
         "data",
         "train_image_dir",
-        default="data/tiles_256/train/images",
     )
     train_mask_dir = select_value(
         args.train_mask_dir,
         config,
         "data",
         "train_mask_dir",
-        default="data/tiles_256/train/masks",
     )
     val_image_dir = select_value(
         args.val_image_dir,
         config,
         "data",
         "val_image_dir",
-        default="data/tiles_256/val/images",
     )
     val_mask_dir = select_value(
         args.val_mask_dir,
         config,
         "data",
         "val_mask_dir",
-        default="data/tiles_256/val/masks",
     )
     model_dir = select_value(args.model_dir, config, "model", "model_dir", default="models")
     log_path = select_value(
@@ -383,8 +379,22 @@ def main():
         config,
         "training",
         "experiment_log_path",
-        default="results/experiments_phase2_augmentation.csv",
     )
+
+    if train_image_dir is None:
+        raise ValueError("No training image directory provided. Set data.train_image_dir or pass --train_image_dir.")
+
+    if train_mask_dir is None:
+        raise ValueError("No training mask directory provided. Set data.train_mask_dir or pass --train_mask_dir.")
+
+    if val_image_dir is None:
+        raise ValueError("No validation image directory provided. Set data.val_image_dir or pass --val_image_dir.")
+
+    if val_mask_dir is None:
+        raise ValueError("No validation mask directory provided. Set data.val_mask_dir or pass --val_mask_dir.")
+
+    if log_path is None:
+        raise ValueError("No experiment log path provided. Set training.experiment_log_path or pass --experiment_log_path.")
 
     model_path = resolve_model_path(model_dir, run_name)
 

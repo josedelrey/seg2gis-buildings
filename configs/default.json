@@ -29,6 +29,21 @@
     "seed": 42,
     "experiment_log_path": "results/experiments_phase2_augmentation.csv"
   },
+  "analysis": {
+    "models_dir": "models",
+    "experiments_csv": "results/experiments_phase2_augmentation.csv",
+    "prediction_out_dir": "outputs/predictions",
+    "comparison_out_dir": "outputs/model_comparisons",
+    "augmentation_type": "mildaug",
+    "num_samples": 4,
+    "num_augs": 4,
+    "num_prediction_grids": 1,
+    "num_comparison_samples": 8,
+    "seed": 42,
+    "threshold": 0.5,
+    "min_mask_pixels": 100,
+    "plots_per_row": 4
+  },
   "inference": {
     "image_path": null,
     "model_path": "models/unet_effb3_256_noaug_e10.pth",

@@ -291,7 +291,7 @@ python scripts/predict_full_image.py \
 
 ## Current Limitations
 
-- Some visualization scripts still have their own default paths and will be moved to the shared config setup later.
+- Phase 2 experiment and visualization defaults are config-driven, but the next results table has not been populated yet.
 - The geospatial vector export is CRS-aware, but polygon boundaries still need quality improvements before being treated as production-grade footprints.
 - The current experiment table only covers the no-augmentation baseline.
 

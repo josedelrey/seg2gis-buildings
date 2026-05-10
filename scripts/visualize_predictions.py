@@ -13,18 +13,12 @@ from albumentations.pytorch import ToTensorV2
 sys.path.append(os.path.abspath("src"))
 
 from dataset import BuildingDataset
+from config import DEFAULT_CONFIG_PATH, get_config_value, load_config
 from gis_utils import denormalize_image
 from models import build_model
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
-VAL_IMG_DIR = "data/tiles_256/val/images"
-VAL_MASK_DIR = "data/tiles_256/val/masks"
-
-MODELS_DIR = "models"
-EXPERIMENTS_CSV = "results/experiments_phase2_augmentation.csv"
-OUT_DIR = "outputs/predictions"
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -33,28 +27,38 @@ IMAGENET_STD = (0.229, 0.224, 0.225)
 def parse_args():
     parser = argparse.ArgumentParser()
 
+    parser.add_argument("--config", type=str, default=DEFAULT_CONFIG_PATH)
+
     parser.add_argument("--run_name", type=str, default=None)
     parser.add_argument("--architecture", type=str, default=None)
     parser.add_argument("--encoder", type=str, default=None)
 
     parser.add_argument("--all_models", action="store_true")
 
-    parser.add_argument("--num_samples", type=int, default=3)
+    parser.add_argument("--num_samples", type=int, default=None)
     parser.add_argument(
         "--num_grids",
         type=int,
-        default=1,
+        default=None,
         help="Number of different random prediction grids to generate.",
     )
-    parser.add_argument("--threshold", type=float, default=0.5)
-    parser.add_argument("--min_mask_pixels", type=int, default=100)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--threshold", type=float, default=None)
+    parser.add_argument("--min_mask_pixels", type=int, default=None)
+    parser.add_argument("--seed", type=int, default=None)
 
-    parser.add_argument("--models_dir", type=str, default=MODELS_DIR)
-    parser.add_argument("--experiments_csv", type=str, default=EXPERIMENTS_CSV)
-    parser.add_argument("--out_dir", type=str, default=OUT_DIR)
+    parser.add_argument("--val_image_dir", type=str, default=None)
+    parser.add_argument("--val_mask_dir", type=str, default=None)
+    parser.add_argument("--models_dir", type=str, default=None)
+    parser.add_argument("--experiments_csv", type=str, default=None)
+    parser.add_argument("--out_dir", type=str, default=None)
 
     return parser.parse_args()
+
+
+def select_value(cli_value, config, *keys, default=None):
+    if cli_value is not None:
+        return cli_value
+    return get_config_value(config, *keys, default=default)
 
 
 def get_val_transform():
@@ -231,6 +235,80 @@ def save_prediction_visualization(
 
 def main():
     args = parse_args()
+    config = load_config(args.config)
+
+    val_image_dir = select_value(
+        args.val_image_dir,
+        config,
+        "data",
+        "val_image_dir",
+    )
+    val_mask_dir = select_value(
+        args.val_mask_dir,
+        config,
+        "data",
+        "val_mask_dir",
+    )
+    args.models_dir = select_value(
+        args.models_dir,
+        config,
+        "analysis",
+        "models_dir",
+        default="models",
+    )
+    args.experiments_csv = select_value(
+        args.experiments_csv,
+        config,
+        "analysis",
+        "experiments_csv",
+    )
+    args.out_dir = select_value(
+        args.out_dir,
+        config,
+        "analysis",
+        "prediction_out_dir",
+    )
+    args.num_samples = select_value(
+        args.num_samples,
+        config,
+        "analysis",
+        "num_samples",
+        default=3,
+    )
+    args.num_grids = select_value(
+        args.num_grids,
+        config,
+        "analysis",
+        "num_prediction_grids",
+        default=1,
+    )
+    args.threshold = select_value(
+        args.threshold,
+        config,
+        "analysis",
+        "threshold",
+        default=0.5,
+    )
+    args.min_mask_pixels = select_value(
+        args.min_mask_pixels,
+        config,
+        "analysis",
+        "min_mask_pixels",
+        default=100,
+    )
+    args.seed = select_value(args.seed, config, "analysis", "seed", default=42)
+
+    if val_image_dir is None:
+        raise ValueError("No validation image directory provided. Set data.val_image_dir or pass --val_image_dir.")
+
+    if val_mask_dir is None:
+        raise ValueError("No validation mask directory provided. Set data.val_mask_dir or pass --val_mask_dir.")
+
+    if args.experiments_csv is None:
+        raise ValueError("No experiments CSV provided. Set analysis.experiments_csv or pass --experiments_csv.")
+
+    if args.out_dir is None:
+        raise ValueError("No output directory provided. Set analysis.prediction_out_dir or pass --out_dir.")
 
     if args.num_grids < 1:
         raise ValueError("--num_grids must be at least 1.")
@@ -246,8 +324,8 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
 
     dataset = BuildingDataset(
-        VAL_IMG_DIR,
-        VAL_MASK_DIR,
+        val_image_dir,
+        val_mask_dir,
         transform=get_val_transform(),
     )
 
