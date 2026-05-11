@@ -328,8 +328,12 @@ python scripts/predict_full_image.py \
 1. Run augmentation experiments with the three best-performing baseline models.
 2. Improve validation reporting with plots, qualitative examples, and clearer comparison tables.
 3. Improve vectorization / polygonization, including cleaner polygon boundaries and geospatial export.
-4. Move the remaining visualization defaults into the shared config setup.
+4. Add smoke tests for config loading, tiling, post-processing, and vector export.
 
 ## Status
 
 WIP. The core segmentation workflow is in place, but the repository is still being shaped into a more reproducible and GIS-ready project.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
