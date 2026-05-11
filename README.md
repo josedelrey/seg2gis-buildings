@@ -38,7 +38,7 @@ Full-scene mask and polygon overlay from the same inference run:
 
 | Clean building mask | Polygon overlay |
 | --- | --- |
-| ![Full-scene cleaned building mask](./images/austin1_unet_effb3_clean_mask.png) | ![Full-scene polygon overlay](./images/austin1_unet_effb3_polygons_overlay.png) |
+| ![Full-scene cleaned building mask](./images/austin1_unet_effb3_clean_mask.png) | ![Full-scene polygon overlay](./images/austin1_unet_effb3_polygons_overlay.jpg) |
 
 Phase 1 model comparison on one validation tile:
 
@@ -143,7 +143,7 @@ results/
 
 images/
   austin1_unet_effb3_clean_mask.png      Full-scene cleaned mask example
-  austin1_unet_effb3_polygons_overlay.png Full-scene polygon overlay example
+  austin1_unet_effb3_polygons_overlay.jpg Full-scene polygon overlay example
   building_footprint_showcase.png        README visual example
   phase1_noaug_model_comparison.png      Phase 1 model comparison example
 ```
