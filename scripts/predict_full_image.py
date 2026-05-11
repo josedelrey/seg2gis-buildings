@@ -57,6 +57,14 @@ def parse_args():
     parser.add_argument("--export_vectors", action="store_true", default=None)
     parser.add_argument("--no_export_vectors", action="store_true")
     parser.add_argument("--vector_min_area", type=float, default=None)
+    parser.add_argument(
+        "--allow_geographic_area",
+        action="store_true",
+        help=(
+            "Allow vector area filtering when the raster CRS is geographic. "
+            "This treats polygon area as square degrees."
+        ),
+    )
 
     parser.add_argument("--out_dir", type=str, default=None)
     parser.add_argument("--output_name", type=str, default=None)
@@ -208,6 +216,7 @@ def print_config(args):
     print("Postprocess open kernel size:", args.open_kernel_size)
     print("Polygon min area:", args.polygon_min_area)
     print("Vector min area:", args.vector_min_area)
+    print("Allow geographic vector area:", args.allow_geographic_area)
     print("Polygon epsilon ratio:", args.epsilon_ratio)
     print("Export GIS vectors:", args.export_vectors)
     print("Crop x:", args.crop_x)
@@ -303,6 +312,7 @@ def save_vector_outputs(args, clean_mask, output_paths):
         raster_path=args.image_path,
         out_path=output_paths["polygons_geojson"],
         min_area=args.vector_min_area,
+        allow_geographic_area=args.allow_geographic_area,
     )
 
     save_vector_polygons(
@@ -310,6 +320,7 @@ def save_vector_outputs(args, clean_mask, output_paths):
         raster_path=args.image_path,
         out_path=output_paths["polygons_gpkg"],
         min_area=args.vector_min_area,
+        allow_geographic_area=args.allow_geographic_area,
     )
 
     return gdf

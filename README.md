@@ -306,7 +306,9 @@ outputs/full_predictions/
   <name>_buildings.gpkg
 ```
 
-The GeoJSON and GeoPackage files use the input raster's transform and CRS through `rasterio`, `shapely`, and `geopandas`. Vector export can be disabled with:
+The GeoJSON and GeoPackage files use the input raster's transform and CRS through `rasterio`, `shapely`, and `geopandas`. Vector area filtering expects a projected CRS so polygon areas are measured in linear CRS units, such as square meters. If the source raster uses a geographic CRS, the export raises an error before applying `vector_min_area`; reproject first, set `--vector_min_area 0`, or use `--allow_geographic_area` only when square-degree area filtering is intentional.
+
+Vector export can be disabled with:
 
 ```bash
 python scripts/predict_full_image.py \
@@ -318,7 +320,7 @@ python scripts/predict_full_image.py \
 ## Current Limitations
 
 - Phase 2 experiment and visualization defaults are config-driven, but the next results table has not been populated yet.
-- The geospatial vector export is CRS-aware, but polygon boundaries still need quality improvements before being treated as production-grade footprints.
+- The geospatial vector export is CRS-aware and guards against accidental area filtering in geographic CRS, but polygon boundaries still need quality improvements before being treated as production-grade footprints.
 - The current experiment table only covers the no-augmentation baseline.
 
 ## Next Phases

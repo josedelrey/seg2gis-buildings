@@ -7,6 +7,26 @@ from rasterio.features import shapes
 from shapely.geometry import shape
 
 
+def validate_area_filter_crs(crs, min_area, allow_geographic_area=False):
+    if min_area is None or min_area <= 0:
+        return
+
+    if crs is None:
+        raise ValueError(
+            "Cannot apply vector min_area because the source raster has no CRS. "
+            "Use a georeferenced raster with a projected CRS, set min_area=0, "
+            "or pass allow_geographic_area=True if you understand the units."
+        )
+
+    if crs.is_geographic and not allow_geographic_area:
+        raise ValueError(
+            "Cannot apply vector min_area with a geographic CRS because polygon.area "
+            "would be measured in square degrees, not square meters. Reproject the "
+            "raster or vector output to a projected CRS, set min_area=0, or pass "
+            "allow_geographic_area=True if degree-based area filtering is intentional."
+        )
+
+
 def mask_to_contours(mask, min_area=64):
     """
     Extract external contours from a binary mask.
@@ -76,7 +96,12 @@ def draw_polygons_on_image(image_rgb, polygons, color=(255, 0, 0), thickness=2):
     return overlay
 
 
-def mask_to_geodataframe(mask, raster_path, min_area=64):
+def mask_to_geodataframe(
+    mask,
+    raster_path,
+    min_area=64,
+    allow_geographic_area=False,
+):
     """
     Convert a binary mask to CRS-aware vector geometries using a source raster.
 
@@ -84,6 +109,9 @@ def mask_to_geodataframe(mask, raster_path, min_area=64):
         mask: uint8 binary mask with values 0/1.
         raster_path: source georeferenced raster used for transform and CRS.
         min_area: minimum polygon area in raster CRS units.
+        allow_geographic_area: allow min_area filtering when the raster CRS is
+            geographic. This treats area as square degrees and is usually not
+            appropriate for building footprints.
 
     Returns:
         GeoDataFrame with building polygons and source raster CRS.
@@ -93,6 +121,12 @@ def mask_to_geodataframe(mask, raster_path, min_area=64):
     with rasterio.open(raster_path) as src:
         transform = src.transform
         crs = src.crs
+
+    validate_area_filter_crs(
+        crs=crs,
+        min_area=min_area,
+        allow_geographic_area=allow_geographic_area,
+    )
 
     records = []
 
@@ -118,7 +152,14 @@ def mask_to_geodataframe(mask, raster_path, min_area=64):
     return gpd.GeoDataFrame(records, geometry="geometry", crs=crs)
 
 
-def save_vector_polygons(mask, raster_path, out_path, min_area=64, driver=None):
+def save_vector_polygons(
+    mask,
+    raster_path,
+    out_path,
+    min_area=64,
+    driver=None,
+    allow_geographic_area=False,
+):
     """
     Save mask-derived polygons to a GIS vector file.
 
@@ -129,6 +170,7 @@ def save_vector_polygons(mask, raster_path, out_path, min_area=64, driver=None):
         mask=mask,
         raster_path=raster_path,
         min_area=min_area,
+        allow_geographic_area=allow_geographic_area,
     )
 
     if driver is None:
