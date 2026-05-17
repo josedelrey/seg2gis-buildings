@@ -1,6 +1,8 @@
 import argparse
 import subprocess
 import sys
+import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import yaml
@@ -122,6 +124,49 @@ def print_command(command):
     print(" ".join(command))
 
 
+def format_duration(seconds):
+    seconds = int(round(seconds))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    if hours:
+        return f"{hours}h {minutes:02d}m {seconds:02d}s"
+
+    if minutes:
+        return f"{minutes}m {seconds:02d}s"
+
+    return f"{seconds}s"
+
+
+def format_eta(seconds_from_now):
+    finish_time = datetime.now() + timedelta(seconds=seconds_from_now)
+    return finish_time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def print_batch_estimate(batch_start_time, completed_durations, remaining_count):
+    elapsed = time.monotonic() - batch_start_time
+
+    if not completed_durations:
+        print(
+            "Batch estimate: waiting for the first completed experiment "
+            "to estimate total runtime."
+        )
+        return
+
+    avg_experiment_duration = sum(completed_durations) / len(completed_durations)
+    estimated_remaining = avg_experiment_duration * remaining_count
+    estimated_total = elapsed + estimated_remaining
+
+    print(
+        "Batch estimate | "
+        f"elapsed: {format_duration(elapsed)} | "
+        f"avg experiment: {format_duration(avg_experiment_duration)} | "
+        f"remaining: {format_duration(estimated_remaining)} | "
+        f"estimated total: {format_duration(estimated_total)} | "
+        f"ETA: {format_eta(estimated_remaining)}"
+    )
+
+
 def main():
     args = parse_args()
     config = load_experiment_config(args.experiments_config)
@@ -144,6 +189,8 @@ def main():
     print("Fail fast:", args.fail_fast)
 
     failures = []
+    batch_start_time = time.monotonic()
+    completed_durations = []
 
     for idx, exp in enumerate(experiments, start=1):
         validate_experiment(exp)
@@ -158,16 +205,44 @@ def main():
         if args.dry_run:
             continue
 
+        print_batch_estimate(
+            batch_start_time=batch_start_time,
+            completed_durations=completed_durations,
+            remaining_count=len(experiments) - idx + 1,
+        )
+
+        experiment_start_time = time.monotonic()
+
         try:
             subprocess.run(command, check=True)
         except subprocess.CalledProcessError as e:
+            experiment_duration = time.monotonic() - experiment_start_time
+            completed_durations.append(experiment_duration)
             failures.append((exp["run_name"], e.returncode))
-            print(f"FAILED: {exp['run_name']} with return code {e.returncode}")
+            print(
+                f"FAILED: {exp['run_name']} with return code {e.returncode} "
+                f"after {format_duration(experiment_duration)}"
+            )
 
             if args.fail_fast:
                 break
 
             print("Continuing with next experiment...")
+        else:
+            experiment_duration = time.monotonic() - experiment_start_time
+            completed_durations.append(experiment_duration)
+            print(
+                f"Finished {exp['run_name']} in "
+                f"{format_duration(experiment_duration)}"
+            )
+
+        remaining_after_current = len(experiments) - idx
+        if remaining_after_current:
+            print_batch_estimate(
+                batch_start_time=batch_start_time,
+                completed_durations=completed_durations,
+                remaining_count=remaining_after_current,
+            )
 
     if failures:
         print()
@@ -176,10 +251,14 @@ def main():
         for run_name, return_code in failures:
             print(f"- {run_name}: return code {return_code}")
 
+        total_duration = time.monotonic() - batch_start_time
+        print(f"Batch elapsed time: {format_duration(total_duration)}")
+
         raise SystemExit(1)
 
     print()
-    print("Done.")
+    total_duration = time.monotonic() - batch_start_time
+    print(f"Done. Total batch time: {format_duration(total_duration)}")
 
 
 if __name__ == "__main__":

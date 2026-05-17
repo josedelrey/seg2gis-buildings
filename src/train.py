@@ -2,6 +2,8 @@ import os
 import csv
 import argparse
 import random
+import time
+from datetime import datetime, timedelta
 
 import numpy as np
 import torch
@@ -74,6 +76,25 @@ def select_value(cli_value, config, *keys, default=None):
     if cli_value is not None:
         return cli_value
     return get_config_value(config, *keys, default=default)
+
+
+def format_duration(seconds):
+    seconds = int(round(seconds))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    if hours:
+        return f"{hours}h {minutes:02d}m {seconds:02d}s"
+
+    if minutes:
+        return f"{minutes}m {seconds:02d}s"
+
+    return f"{seconds}s"
+
+
+def format_eta(seconds_from_now):
+    finish_time = datetime.now() + timedelta(seconds=seconds_from_now)
+    return finish_time.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def set_seed(seed):
@@ -472,8 +493,11 @@ def main():
     best_val_dice = 0.0
     best_val_loss = None
     best_epoch = 0
+    experiment_start_time = time.monotonic()
+    epoch_durations = []
 
     for epoch in range(1, epochs + 1):
+        epoch_start_time = time.monotonic()
         print(f"\n=== Epoch {epoch}/{epochs} ===")
 
         model.train()
@@ -525,6 +549,24 @@ def main():
             f"Train Loss: {train_loss:.4f} | "
             f"Val Loss: {val_loss:.4f} | "
             f"Val Dice @0.5: {val_dice:.4f}"
+        )
+
+        epoch_duration = time.monotonic() - epoch_start_time
+        epoch_durations.append(epoch_duration)
+
+        elapsed = time.monotonic() - experiment_start_time
+        avg_epoch_duration = sum(epoch_durations) / len(epoch_durations)
+        remaining_epochs = epochs - epoch
+        estimated_remaining = avg_epoch_duration * remaining_epochs
+        estimated_total = elapsed + estimated_remaining
+
+        print(
+            "Time estimate | "
+            f"epoch: {format_duration(epoch_duration)} | "
+            f"elapsed: {format_duration(elapsed)} | "
+            f"remaining: {format_duration(estimated_remaining)} | "
+            f"estimated total: {format_duration(estimated_total)} | "
+            f"ETA: {format_eta(estimated_remaining)}"
         )
 
         if val_dice > best_val_dice:
