@@ -1,4 +1,4 @@
-description: Phase 2 augmentation experiments for the strongest Phase 1 models.
+description: Phase 2a augmentation search using U-Net + EfficientNet-B3.
 
 defaults:
   batch_size: 8
@@ -8,29 +8,13 @@ defaults:
   experiment_log_path: results/experiments_phase2_augmentation.csv
 
 experiments:
-  - run_name: unet_effb3_256_noaug_e30
-    architecture: unet
-    encoder: efficientnet-b3
-    augmentation_type: noaug
-  - run_name: fpn_effb3_256_noaug_e30
-    architecture: fpn
-    encoder: efficientnet-b3
-    augmentation_type: noaug
-  - run_name: deeplabv3p_effb3_256_noaug_e30
-    architecture: deeplabv3plus
-    encoder: efficientnet-b3
-    augmentation_type: noaug
+  # - run_name: unet_effb3_256_noaug_e30
+  #   architecture: unet
+  #   encoder: efficientnet-b3
+  #   augmentation_type: noaug
 
   - run_name: unet_effb3_256_geomaug_e30
     architecture: unet
-    encoder: efficientnet-b3
-    augmentation_type: geomaug
-  - run_name: fpn_effb3_256_geomaug_e30
-    architecture: fpn
-    encoder: efficientnet-b3
-    augmentation_type: geomaug
-  - run_name: deeplabv3p_effb3_256_geomaug_e30
-    architecture: deeplabv3plus
     encoder: efficientnet-b3
     augmentation_type: geomaug
 
@@ -38,24 +22,8 @@ experiments:
     architecture: unet
     encoder: efficientnet-b3
     augmentation_type: mildaug
-  - run_name: fpn_effb3_256_mildaug_e30
-    architecture: fpn
-    encoder: efficientnet-b3
-    augmentation_type: mildaug
-  - run_name: deeplabv3p_effb3_256_mildaug_e30
-    architecture: deeplabv3plus
-    encoder: efficientnet-b3
-    augmentation_type: mildaug
 
   - run_name: unet_effb3_256_strongaug_e30
     architecture: unet
-    encoder: efficientnet-b3
-    augmentation_type: strongaug
-  - run_name: fpn_effb3_256_strongaug_e30
-    architecture: fpn
-    encoder: efficientnet-b3
-    augmentation_type: strongaug
-  - run_name: deeplabv3p_effb3_256_strongaug_e30
-    architecture: deeplabv3plus
     encoder: efficientnet-b3
     augmentation_type: strongaug

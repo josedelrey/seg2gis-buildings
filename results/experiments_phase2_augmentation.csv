@@ -1,1 +1,5 @@
 run_name,architecture,encoder,augmentation_type,epochs,batch_size,lr,best_epoch,best_val_dice_threshold_05,best_val_loss,best_threshold,best_threshold_val_dice,notes
+unet_effb3_256_noaug_e30,unet,efficientnet-b3,noaug,30,8,0.0001,28,0.8583,0.2709,0.5,0.8583,
+unet_effb3_256_geomaug_e30,unet,efficientnet-b3,geomaug,30,8,0.0001,24,0.8597,0.2572,0.7,0.8597,
+unet_effb3_256_mildaug_e30,unet,efficientnet-b3,mildaug,30,8,0.0001,24,0.8605,0.2584,0.5,0.8605,
+unet_effb3_256_strongaug_e30,unet,efficientnet-b3,strongaug,30,8,0.0001,24,0.8581,0.2604,0.4,0.8581,

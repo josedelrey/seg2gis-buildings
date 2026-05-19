@@ -31,14 +31,17 @@ CSV_HEADER = [
     "lr",
     "best_epoch",
     "best_val_dice_threshold_05",
+    "best_val_iou_threshold_05",
     "best_val_loss",
     "best_threshold",
     "best_threshold_val_dice",
+    "best_threshold_val_iou",
     "notes",
 ]
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
+THRESHOLD_VALUES = tuple(round(float(t), 2) for t in np.arange(0.30, 0.801, 0.01))
 
 
 def parse_args():
@@ -107,14 +110,25 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = True
 
 
-def dice_score(logits, masks, threshold=0.5):
-    probs = torch.sigmoid(logits)
-    preds = (probs > threshold).float()
+def count_values_above_thresholds(values, thresholds):
+    if values.numel() == 0:
+        return torch.zeros(
+            thresholds.numel(),
+            dtype=torch.float64,
+            device=thresholds.device,
+        )
 
-    intersection = (preds * masks).sum()
-    total = preds.sum() + masks.sum()
+    values = values.detach().float().flatten()
+    bucket_indices = torch.bucketize(values, thresholds, right=False)
+    counts_by_bucket = torch.bincount(
+        bucket_indices,
+        minlength=thresholds.numel() + 1,
+    ).to(torch.float64)
 
-    return (2 * intersection + 1e-7) / (total + 1e-7)
+    return torch.flip(
+        torch.cumsum(torch.flip(counts_by_bucket[1:], dims=[0]), dim=0),
+        dims=[0],
+    )
 
 
 def finish_transform():
@@ -214,11 +228,23 @@ def get_val_transform():
     ])
 
 
-def evaluate(model, loader, loss_fn, threshold=0.5, desc="Val"):
+def evaluate(model, loader, loss_fn, threshold_values=THRESHOLD_VALUES, desc="Val"):
     model.eval()
 
     val_loss = 0.0
-    val_dice = 0.0
+    thresholds = torch.tensor(
+        threshold_values,
+        dtype=torch.float32,
+        device=DEVICE,
+    )
+    pred_counts = torch.zeros(
+        thresholds.numel(),
+        dtype=torch.float64,
+        device=DEVICE,
+    )
+    true_positive_counts = torch.zeros_like(pred_counts)
+    target_count = torch.tensor(0.0, dtype=torch.float64, device=DEVICE)
+    threshold_05_index = threshold_values.index(0.5)
 
     val_pbar = tqdm(loader, desc=desc, leave=False)
 
@@ -234,46 +260,105 @@ def evaluate(model, loader, loss_fn, threshold=0.5, desc="Val"):
                 logits = model(imgs)
                 loss = loss_fn(logits, masks)
 
-            dice = dice_score(logits, masks, threshold=threshold)
+            probs = torch.sigmoid(logits).float()
+            masks_bool = masks > 0.5
+
+            batch_pred_counts = count_values_above_thresholds(probs, thresholds)
+            batch_true_positive_counts = count_values_above_thresholds(
+                probs[masks_bool],
+                thresholds,
+            )
+
+            pred_counts += batch_pred_counts
+            true_positive_counts += batch_true_positive_counts
+            target_count += masks_bool.sum(dtype=torch.float64)
+
+            batch_dice_05 = (
+                2 * batch_true_positive_counts[threshold_05_index] + 1e-7
+            ) / (
+                batch_pred_counts[threshold_05_index] + masks_bool.sum() + 1e-7
+            )
 
             val_loss += loss.item()
-            val_dice += dice.item()
 
             val_pbar.set_postfix({
                 "batch_loss": f"{loss.item():.4f}",
-                "batch_dice": f"{dice.item():.4f}",
+                "batch_dice_05": f"{batch_dice_05.item():.4f}",
             })
 
     val_loss /= len(loader)
-    val_dice /= len(loader)
 
-    return val_loss, val_dice
+    dice_scores = (2 * true_positive_counts + 1e-7) / (
+        pred_counts + target_count + 1e-7
+    )
+    iou_scores = (true_positive_counts + 1e-7) / (
+        pred_counts + target_count - true_positive_counts + 1e-7
+    )
+    best_index = int(torch.argmax(dice_scores).item())
+
+    return {
+        "loss": val_loss,
+        "dice_threshold_05": float(dice_scores[threshold_05_index].item()),
+        "iou_threshold_05": float(iou_scores[threshold_05_index].item()),
+        "best_threshold": threshold_values[best_index],
+        "best_threshold_val_dice": float(dice_scores[best_index].item()),
+        "best_threshold_val_iou": float(iou_scores[best_index].item()),
+    }
 
 
 def find_best_threshold(model, loader, loss_fn):
-    thresholds = [0.3, 0.4, 0.5, 0.6, 0.7]
+    print(
+        "\nTuning threshold on validation set "
+        f"({THRESHOLD_VALUES[0]:.2f}..{THRESHOLD_VALUES[-1]:.2f}, step 0.01)..."
+    )
+    metrics = evaluate(model, loader, loss_fn, desc="Threshold sweep")
+    print(
+        f"Best threshold: {metrics['best_threshold']:.2f} | "
+        f"Val Dice: {metrics['best_threshold_val_dice']:.4f} | "
+        f"Val IoU: {metrics['best_threshold_val_iou']:.4f}"
+    )
+    return metrics
 
-    best_threshold = 0.5
-    best_dice = 0.0
 
-    print("\nTuning threshold on validation set...")
+def ensure_experiment_log_header(log_path):
+    with open(log_path, "r", newline="") as f:
+        reader = csv.reader(f)
+        existing_header = next(reader, None)
+        existing_rows = list(reader)
 
-    for threshold in thresholds:
-        _, val_dice = evaluate(
-            model,
-            loader,
-            loss_fn,
-            threshold=threshold,
-            desc=f"Threshold {threshold:.2f}",
+    if existing_header is None:
+        existing_header = []
+
+    if existing_header == CSV_HEADER:
+        return
+
+    unknown_columns = [
+        column for column in existing_header or [] if column not in CSV_HEADER
+    ]
+    if unknown_columns:
+        raise ValueError(
+            f"CSV header mismatch in {log_path}.\n"
+            f"Expected columns: {CSV_HEADER}\n"
+            f"Found:            {existing_header}\n"
+            f"Unknown columns:  {unknown_columns}\n"
+            "Delete the file or update the header before logging this experiment."
         )
 
-        print(f"Threshold {threshold:.2f} | Val Dice: {val_dice:.4f}")
+    header_index = {column: idx for idx, column in enumerate(existing_header)}
+    migrated_rows = []
 
-        if val_dice > best_dice:
-            best_dice = val_dice
-            best_threshold = threshold
+    for row in existing_rows:
+        migrated_rows.append([
+            row[header_index[column]]
+            if column in header_index and header_index[column] < len(row)
+            else ""
+            for column in CSV_HEADER
+        ])
 
-    return best_threshold, best_dice
+    with open(log_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(CSV_HEADER)
+        writer.writerows(migrated_rows)
 
 
 def log_experiment(
@@ -287,9 +372,11 @@ def log_experiment(
     lr,
     best_epoch,
     best_val_dice_threshold_05,
+    best_val_iou_threshold_05,
     best_val_loss,
     best_threshold,
     best_threshold_val_dice,
+    best_threshold_val_iou,
 ):
     log_dir = os.path.dirname(log_path)
     if log_dir:
@@ -298,17 +385,7 @@ def log_experiment(
     file_exists = os.path.exists(log_path)
 
     if file_exists:
-        with open(log_path, "r", newline="") as f:
-            reader = csv.reader(f)
-            existing_header = next(reader, None)
-
-        if existing_header != CSV_HEADER:
-            raise ValueError(
-                f"CSV header mismatch in {log_path}.\n"
-                f"Expected: {CSV_HEADER}\n"
-                f"Found:    {existing_header}\n"
-                "Delete the file or update the header before logging this experiment."
-            )
+        ensure_experiment_log_header(log_path)
 
     with open(log_path, "a", newline="") as f:
         writer = csv.writer(f)
@@ -326,9 +403,11 @@ def log_experiment(
             lr,
             best_epoch,
             round(best_val_dice_threshold_05, 4),
+            round(best_val_iou_threshold_05, 4),
             round(best_val_loss, 4) if best_val_loss is not None else None,
             round(best_threshold, 2),
             round(best_threshold_val_dice, 4),
+            round(best_threshold_val_iou, 4),
             "",
         ])
 
@@ -490,8 +569,11 @@ def main():
         enabled=(DEVICE == "cuda"),
     )
 
-    best_val_dice = 0.0
-    best_val_loss = None
+    best_checkpoint_dice = 0.0
+    best_val_dice_threshold_05 = 0.0
+    best_val_iou_threshold_05 = 0.0
+    best_threshold = 0.5
+    best_threshold_val_iou = 0.0
     best_epoch = 0
     experiment_start_time = time.monotonic()
     epoch_durations = []
@@ -531,15 +613,14 @@ def main():
 
         train_loss /= len(train_loader)
 
-        val_loss, val_dice = evaluate(
+        val_metrics = evaluate(
             model,
             val_loader,
             loss_fn,
-            threshold=0.5,
             desc="Val",
         )
 
-        scheduler.step(val_dice)
+        scheduler.step(val_metrics["best_threshold_val_dice"])
 
         current_lr = optimizer.param_groups[0]["lr"]
         print(f"Current LR: {current_lr:.6f}")
@@ -547,8 +628,12 @@ def main():
         print(
             f"Epoch {epoch}/{epochs} | "
             f"Train Loss: {train_loss:.4f} | "
-            f"Val Loss: {val_loss:.4f} | "
-            f"Val Dice @0.5: {val_dice:.4f}"
+            f"Val Loss: {val_metrics['loss']:.4f} | "
+            f"Val Dice @0.5: {val_metrics['dice_threshold_05']:.4f} | "
+            f"Val IoU @0.5: {val_metrics['iou_threshold_05']:.4f} | "
+            f"Best threshold: {val_metrics['best_threshold']:.2f} | "
+            f"Best Dice: {val_metrics['best_threshold_val_dice']:.4f} | "
+            f"Best IoU: {val_metrics['best_threshold_val_iou']:.4f}"
         )
 
         epoch_duration = time.monotonic() - epoch_start_time
@@ -569,14 +654,21 @@ def main():
             f"ETA: {format_eta(estimated_remaining)}"
         )
 
-        if val_dice > best_val_dice:
-            best_val_dice = val_dice
-            best_val_loss = val_loss
+        if val_metrics["best_threshold_val_dice"] > best_checkpoint_dice:
+            best_checkpoint_dice = val_metrics["best_threshold_val_dice"]
+            best_val_dice_threshold_05 = val_metrics["dice_threshold_05"]
+            best_val_iou_threshold_05 = val_metrics["iou_threshold_05"]
+            best_threshold = val_metrics["best_threshold"]
+            best_threshold_val_iou = val_metrics["best_threshold_val_iou"]
             best_epoch = epoch
             torch.save(model.state_dict(), model_path)
-            print("Saved best model.")
+            print("Saved best model by tuned validation Dice.")
 
-    print(f"\nBest Val Dice @0.5: {best_val_dice:.4f}")
+    print(f"\nBest checkpoint Val Dice: {best_checkpoint_dice:.4f}")
+    print(f"Best checkpoint Val Dice @0.5: {best_val_dice_threshold_05:.4f}")
+    print(f"Best checkpoint Val IoU @0.5: {best_val_iou_threshold_05:.4f}")
+    print(f"Best checkpoint threshold: {best_threshold:.2f}")
+    print(f"Best checkpoint Val IoU: {best_threshold_val_iou:.4f}")
     print(f"Best Epoch: {best_epoch}")
 
     state_dict = torch.load(
@@ -587,15 +679,19 @@ def main():
 
     model.load_state_dict(state_dict)
 
-    best_threshold, best_threshold_val_dice = find_best_threshold(
+    final_metrics = find_best_threshold(
         model,
         val_loader,
         loss_fn,
     )
 
     print(
-        f"\nBest threshold: {best_threshold:.2f} | "
-        f"Val Dice: {best_threshold_val_dice:.4f}"
+        f"\nBest checkpoint retest | "
+        f"Dice @0.5: {final_metrics['dice_threshold_05']:.4f} | "
+        f"IoU @0.5: {final_metrics['iou_threshold_05']:.4f} | "
+        f"Best threshold: {final_metrics['best_threshold']:.2f} | "
+        f"Best Dice: {final_metrics['best_threshold_val_dice']:.4f} | "
+        f"Best IoU: {final_metrics['best_threshold_val_iou']:.4f}"
     )
 
     log_experiment(
@@ -608,10 +704,12 @@ def main():
         batch_size=batch_size,
         lr=lr,
         best_epoch=best_epoch,
-        best_val_dice_threshold_05=best_val_dice,
-        best_val_loss=best_val_loss,
-        best_threshold=best_threshold,
-        best_threshold_val_dice=best_threshold_val_dice,
+        best_val_dice_threshold_05=final_metrics["dice_threshold_05"],
+        best_val_iou_threshold_05=final_metrics["iou_threshold_05"],
+        best_val_loss=final_metrics["loss"],
+        best_threshold=final_metrics["best_threshold"],
+        best_threshold_val_dice=final_metrics["best_threshold_val_dice"],
+        best_threshold_val_iou=final_metrics["best_threshold_val_iou"],
     )
 
 
