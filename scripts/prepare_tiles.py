@@ -5,12 +5,19 @@ from glob import glob
 
 import cv2
 import numpy as np
-from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
 sys.path.append(os.path.abspath("src"))
 
 from config import DEFAULT_CONFIG_PATH, get_config_value, load_config
+from inria_split import (
+    INRIA_TEST_IMAGE_IDS,
+    INRIA_TRAIN_IMAGE_IDS,
+    INRIA_VAL_IMAGE_IDS,
+    collect_image_mask_pairs,
+    describe_image_ids,
+    image_id_list,
+)
 
 
 # Suppress OpenCV GeoTIFF metadata warnings.
@@ -30,8 +37,9 @@ def parse_args():
     parser.add_argument("--out_dir", type=str, default=None)
     parser.add_argument("--tile_size", type=int, default=None)
     parser.add_argument("--stride", type=int, default=None)
-    parser.add_argument("--val_split", type=float, default=None)
-    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--train_image_ids", type=str, default=None)
+    parser.add_argument("--val_image_ids", type=str, default=None)
+    parser.add_argument("--test_image_ids", type=str, default=None)
 
     return parser.parse_args()
 
@@ -43,30 +51,11 @@ def select_value(cli_value, config, *keys, default=None):
 
 
 def make_dirs(out_dir):
-    for split in ["train", "val"]:
+    for split in ["train", "val", "test"]:
         os.makedirs(os.path.join(out_dir, split, "images"), exist_ok=True)
         os.makedirs(os.path.join(out_dir, split, "masks"), exist_ok=True)
 
-    os.makedirs(os.path.join(out_dir, "test", "images"), exist_ok=True)
-
-
-def get_train_files(image_dir, mask_dir):
-    images = sorted(glob(os.path.join(image_dir, "*.tif")))
-    masks = sorted(glob(os.path.join(mask_dir, "*.tif")))
-
-    if len(images) == 0:
-        raise RuntimeError(f"No training images found in: {image_dir}")
-
-    if len(masks) == 0:
-        raise RuntimeError(f"No masks found in: {mask_dir}")
-
-    if len(images) != len(masks):
-        raise RuntimeError(
-            f"Number of images and masks does not match: "
-            f"{len(images)} images vs {len(masks)} masks"
-        )
-
-    return images, masks
+    os.makedirs(os.path.join(out_dir, "public_test", "images"), exist_ok=True)
 
 
 def get_test_files(test_image_dir):
@@ -107,28 +96,18 @@ def tile_image_only(img, tile_size, stride):
     return tiles
 
 
-def process_train_val(image_dir, mask_dir, out_dir, tile_size, stride, val_split, seed):
-    images, masks = get_train_files(image_dir, mask_dir)
-
-    train_imgs, val_imgs, train_masks, val_masks = train_test_split(
-        images,
-        masks,
-        test_size=val_split,
-        random_state=seed,
-    )
-
+def process_labeled_split(split, pairs, out_dir, tile_size, stride):
     split_data = {
-        "train": (train_imgs, train_masks),
-        "val": (val_imgs, val_masks),
+        split: pairs,
     }
 
-    for split, (img_list, mask_list) in split_data.items():
+    for split, split_pairs in split_data.items():
         print(f"Processing {split} set...")
 
         total_tiles = 0
 
         for img_path, mask_path in tqdm(
-            list(zip(img_list, mask_list)),
+            split_pairs,
             desc=f"{split}",
             unit="img",
         ):
@@ -160,7 +139,7 @@ def process_train_val(image_dir, mask_dir, out_dir, tile_size, stride, val_split
         print(f"{split} done. Saved {total_tiles} tiles.")
 
 
-def process_test(test_image_dir, out_dir, tile_size, stride):
+def process_public_unlabeled_test(test_image_dir, out_dir, tile_size, stride):
     test_images = get_test_files(test_image_dir)
 
     print("Processing test set...")
@@ -178,7 +157,7 @@ def process_test(test_image_dir, out_dir, tile_size, stride):
 
         for tile_img, y, x in tiles:
             name = f"{base_name}_y{y:04d}_x{x:04d}.png"
-            out_img_path = os.path.join(out_dir, "test", "images", name)
+            out_img_path = os.path.join(out_dir, "public_test", "images", name)
             cv2.imwrite(out_img_path, tile_img)
 
         total_tiles += len(tiles)
@@ -211,8 +190,27 @@ def main():
     out_dir = select_value(args.out_dir, config, "data", "tile_dir")
     tile_size = select_value(args.tile_size, config, "tiling", "tile_size", default=256)
     stride = select_value(args.stride, config, "tiling", "stride", default=256)
-    val_split = select_value(args.val_split, config, "tiling", "val_split", default=0.2)
-    seed = select_value(args.seed, config, "tiling", "seed", default=42)
+    train_image_ids = image_id_list(select_value(
+        args.train_image_ids,
+        config,
+        "tiling",
+        "train_image_ids",
+        default=INRIA_TRAIN_IMAGE_IDS,
+    ))
+    val_image_ids = image_id_list(select_value(
+        args.val_image_ids,
+        config,
+        "tiling",
+        "val_image_ids",
+        default=INRIA_VAL_IMAGE_IDS,
+    ))
+    test_image_ids = image_id_list(select_value(
+        args.test_image_ids,
+        config,
+        "tiling",
+        "test_image_ids",
+        default=INRIA_TEST_IMAGE_IDS,
+    ))
 
     if image_dir is None:
         raise ValueError("No raw training image directory provided. Set data.raw_train_image_dir or pass --image_dir.")
@@ -220,24 +218,46 @@ def main():
     if mask_dir is None:
         raise ValueError("No raw training mask directory provided. Set data.raw_train_mask_dir or pass --mask_dir.")
 
-    if test_image_dir is None:
-        raise ValueError("No test image directory provided. Set data.raw_test_image_dir or pass --test_image_dir.")
-
     if out_dir is None:
         raise ValueError("No tile output directory provided. Set data.tile_dir or pass --out_dir.")
 
     print("Image dir:", image_dir)
     print("Mask dir:", mask_dir)
-    print("Test image dir:", test_image_dir)
+    print("Public unlabeled test image dir:", test_image_dir)
     print("Output dir:", out_dir)
     print("Tile size:", tile_size)
     print("Stride:", stride)
-    print("Validation split:", val_split)
-    print("Seed:", seed)
+    print("Protocol: INRIA public 155 with internal validation")
+    print("Train image ids:", describe_image_ids(train_image_ids))
+    print("Validation image ids:", describe_image_ids(val_image_ids))
+    print("Test image ids:", describe_image_ids(test_image_ids))
 
     make_dirs(out_dir)
-    process_train_val(image_dir, mask_dir, out_dir, tile_size, stride, val_split, seed)
-    process_test(test_image_dir, out_dir, tile_size, stride)
+    process_labeled_split(
+        "train",
+        collect_image_mask_pairs(image_dir, mask_dir, train_image_ids),
+        out_dir,
+        tile_size,
+        stride,
+    )
+    process_labeled_split(
+        "val",
+        collect_image_mask_pairs(image_dir, mask_dir, val_image_ids),
+        out_dir,
+        tile_size,
+        stride,
+    )
+    process_labeled_split(
+        "test",
+        collect_image_mask_pairs(image_dir, mask_dir, test_image_ids),
+        out_dir,
+        tile_size,
+        stride,
+    )
+
+    if test_image_dir is not None:
+        process_public_unlabeled_test(test_image_dir, out_dir, tile_size, stride)
+
     print("All tiling completed.")
 
 

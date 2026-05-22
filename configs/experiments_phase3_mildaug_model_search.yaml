@@ -1,0 +1,31 @@
+description: Phase 3 model search using the best Phase 2 augmentation recipe.
+
+defaults:
+  batch_size: 8
+  epochs: 30
+  lr: 0.0001
+  seed: 42
+  augmentation_type: mildaug
+  experiment_log_path: results/experiments_inria155_phase3_mildaug_model_search.csv
+
+experiments:
+  - run_name: fpn_effb3_256_mildaug_e30_s42
+    architecture: fpn
+    encoder: efficientnet-b3
+
+  - run_name: deeplabv3p_effb3_256_mildaug_e30_s42
+    architecture: deeplabv3plus
+    encoder: efficientnet-b3
+
+  - run_name: unet_effb0_256_mildaug_e30_s42
+    architecture: unet
+    encoder: efficientnet-b0
+
+  - run_name: unet_r50_256_mildaug_e30_s42
+    architecture: unet
+    encoder: resnet50
+
+  - run_name: unet_effb3_256_mildaug_e50_s42
+    architecture: unet
+    encoder: efficientnet-b3
+    epochs: 50

@@ -16,7 +16,17 @@ from tqdm import tqdm
 
 from config import DEFAULT_CONFIG_PATH, get_config_value, load_config, resolve_model_path
 from dataset import BuildingDataset
+from gis_utils import load_rgb_image, predict_full_image_tiled
+from inria_split import (
+    INRIA_TEST_IMAGE_IDS,
+    INRIA_TRAIN_IMAGE_IDS,
+    INRIA_VAL_IMAGE_IDS,
+    collect_image_mask_pairs,
+    describe_image_ids,
+    image_id_list,
+)
 from models import build_model
+from postprocess import postprocess_mask
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -26,16 +36,41 @@ CSV_HEADER = [
     "architecture",
     "encoder",
     "augmentation_type",
+    "protocol",
+    "train_image_ids",
+    "val_image_ids",
+    "test_image_ids",
+    "train_tiles",
+    "val_tiles",
+    "test_images",
+    "test_min_area",
+    "test_open_kernel_size",
     "epochs",
     "batch_size",
     "lr",
     "best_epoch",
-    "best_val_dice_threshold_05",
-    "best_val_iou_threshold_05",
-    "best_val_loss",
+    "val_loss",
+    "val_dice_threshold_05",
+    "val_iou_threshold_05",
+    "val_precision_threshold_05",
+    "val_recall_threshold_05",
+    "val_accuracy_threshold_05",
     "best_threshold",
-    "best_threshold_val_dice",
-    "best_threshold_val_iou",
+    "val_best_dice",
+    "val_best_iou",
+    "val_best_precision",
+    "val_best_recall",
+    "val_best_accuracy",
+    "test_threshold",
+    "test_iou_building",
+    "test_dice_f1",
+    "test_precision",
+    "test_recall",
+    "test_accuracy",
+    "test_tp",
+    "test_fp",
+    "test_fn",
+    "test_tn",
     "notes",
 ]
 
@@ -69,6 +104,15 @@ def parse_args():
     parser.add_argument("--train_mask_dir", type=str, default=None)
     parser.add_argument("--val_image_dir", type=str, default=None)
     parser.add_argument("--val_mask_dir", type=str, default=None)
+    parser.add_argument("--raw_test_image_dir", type=str, default=None)
+    parser.add_argument("--raw_test_mask_dir", type=str, default=None)
+    parser.add_argument("--train_image_ids", type=str, default=None)
+    parser.add_argument("--val_image_ids", type=str, default=None)
+    parser.add_argument("--test_image_ids", type=str, default=None)
+    parser.add_argument("--eval_tile_size", type=int, default=None)
+    parser.add_argument("--eval_stride", type=int, default=None)
+    parser.add_argument("--eval_min_area", type=int, default=None)
+    parser.add_argument("--eval_open_kernel_size", type=int, default=None)
     parser.add_argument("--model_dir", type=str, default=None)
     parser.add_argument("--experiment_log_path", type=str, default=None)
 
@@ -244,6 +288,7 @@ def evaluate(model, loader, loss_fn, threshold_values=THRESHOLD_VALUES, desc="Va
     )
     true_positive_counts = torch.zeros_like(pred_counts)
     target_count = torch.tensor(0.0, dtype=torch.float64, device=DEVICE)
+    total_count = torch.tensor(0.0, dtype=torch.float64, device=DEVICE)
     threshold_05_index = threshold_values.index(0.5)
 
     val_pbar = tqdm(loader, desc=desc, leave=False)
@@ -272,6 +317,7 @@ def evaluate(model, loader, loss_fn, threshold_values=THRESHOLD_VALUES, desc="Va
             pred_counts += batch_pred_counts
             true_positive_counts += batch_true_positive_counts
             target_count += masks_bool.sum(dtype=torch.float64)
+            total_count += masks_bool.numel()
 
             batch_dice_05 = (
                 2 * batch_true_positive_counts[threshold_05_index] + 1e-7
@@ -294,15 +340,30 @@ def evaluate(model, loader, loss_fn, threshold_values=THRESHOLD_VALUES, desc="Va
     iou_scores = (true_positive_counts + 1e-7) / (
         pred_counts + target_count - true_positive_counts + 1e-7
     )
+    precision_scores = (true_positive_counts + 1e-7) / (
+        pred_counts + 1e-7
+    )
+    recall_scores = (true_positive_counts + 1e-7) / (
+        target_count + 1e-7
+    )
+    accuracy_scores = (
+        total_count - pred_counts - target_count + (2 * true_positive_counts)
+    ) / (total_count + 1e-7)
     best_index = int(torch.argmax(dice_scores).item())
 
     return {
         "loss": val_loss,
         "dice_threshold_05": float(dice_scores[threshold_05_index].item()),
         "iou_threshold_05": float(iou_scores[threshold_05_index].item()),
+        "precision_threshold_05": float(precision_scores[threshold_05_index].item()),
+        "recall_threshold_05": float(recall_scores[threshold_05_index].item()),
+        "accuracy_threshold_05": float(accuracy_scores[threshold_05_index].item()),
         "best_threshold": threshold_values[best_index],
         "best_threshold_val_dice": float(dice_scores[best_index].item()),
         "best_threshold_val_iou": float(iou_scores[best_index].item()),
+        "best_threshold_val_precision": float(precision_scores[best_index].item()),
+        "best_threshold_val_recall": float(recall_scores[best_index].item()),
+        "best_threshold_val_accuracy": float(accuracy_scores[best_index].item()),
     }
 
 
@@ -315,50 +376,100 @@ def find_best_threshold(model, loader, loss_fn):
     print(
         f"Best threshold: {metrics['best_threshold']:.2f} | "
         f"Val Dice: {metrics['best_threshold_val_dice']:.4f} | "
-        f"Val IoU: {metrics['best_threshold_val_iou']:.4f}"
+        f"Val IoU: {metrics['best_threshold_val_iou']:.4f} | "
+        f"Val Precision: {metrics['best_threshold_val_precision']:.4f} | "
+        f"Val Recall: {metrics['best_threshold_val_recall']:.4f} | "
+        f"Val Accuracy: {metrics['best_threshold_val_accuracy']:.4f}"
     )
     return metrics
 
 
-def ensure_experiment_log_header(log_path):
-    with open(log_path, "r", newline="") as f:
-        reader = csv.reader(f)
-        existing_header = next(reader, None)
-        existing_rows = list(reader)
+def confusion_from_masks(pred_mask, target_mask):
+    pred = pred_mask.astype(bool)
+    target = target_mask.astype(bool)
 
-    if existing_header is None:
-        existing_header = []
+    tp = int(np.logical_and(pred, target).sum())
+    fp = int(np.logical_and(pred, np.logical_not(target)).sum())
+    fn = int(np.logical_and(np.logical_not(pred), target).sum())
+    tn = int(np.logical_and(np.logical_not(pred), np.logical_not(target)).sum())
 
-    if existing_header == CSV_HEADER:
-        return
+    return tp, fp, fn, tn
 
-    unknown_columns = [
-        column for column in existing_header or [] if column not in CSV_HEADER
-    ]
-    if unknown_columns:
-        raise ValueError(
-            f"CSV header mismatch in {log_path}.\n"
-            f"Expected columns: {CSV_HEADER}\n"
-            f"Found:            {existing_header}\n"
-            f"Unknown columns:  {unknown_columns}\n"
-            "Delete the file or update the header before logging this experiment."
+
+def metrics_from_confusion(tp, fp, fn, tn, eps=1e-7):
+    return {
+        "tp": int(tp),
+        "fp": int(fp),
+        "fn": int(fn),
+        "tn": int(tn),
+        "iou_building": float((tp + eps) / (tp + fp + fn + eps)),
+        "dice_f1": float((2 * tp + eps) / (2 * tp + fp + fn + eps)),
+        "precision": float((tp + eps) / (tp + fp + eps)),
+        "recall": float((tp + eps) / (tp + fn + eps)),
+        "accuracy": float((tp + tn + eps) / (tp + fp + fn + tn + eps)),
+    }
+
+
+def evaluate_full_images(
+    model,
+    image_dir,
+    mask_dir,
+    image_ids,
+    threshold,
+    tile_size,
+    stride,
+    min_area,
+    open_kernel_size,
+):
+    pairs = collect_image_mask_pairs(image_dir, mask_dir, image_ids)
+
+    total_tp = 0
+    total_fp = 0
+    total_fn = 0
+    total_tn = 0
+
+    model.eval()
+
+    for image_path, mask_path in tqdm(pairs, desc="INRIA(155) full-image test"):
+        image_rgb = load_rgb_image(image_path)
+        target_mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+
+        if target_mask is None:
+            raise RuntimeError(f"Could not read mask: {mask_path}")
+
+        target_mask = target_mask > 127
+
+        prob_map = predict_full_image_tiled(
+            model=model,
+            image_rgb=image_rgb,
+            tile_size=tile_size,
+            stride=stride,
+            device=DEVICE,
         )
+        pred_mask = prob_map >= threshold
+        pred_mask = postprocess_mask(
+            pred_mask.astype(np.uint8),
+            min_area=min_area,
+            open_kernel_size=open_kernel_size,
+        ).astype(bool)
 
-    header_index = {column: idx for idx, column in enumerate(existing_header)}
-    migrated_rows = []
+        if pred_mask.shape != target_mask.shape:
+            raise RuntimeError(
+                f"Prediction/target shape mismatch for {image_path}: "
+                f"{pred_mask.shape} vs {target_mask.shape}"
+            )
 
-    for row in existing_rows:
-        migrated_rows.append([
-            row[header_index[column]]
-            if column in header_index and header_index[column] < len(row)
-            else ""
-            for column in CSV_HEADER
-        ])
+        tp, fp, fn, tn = confusion_from_masks(pred_mask, target_mask)
+        total_tp += tp
+        total_fp += fp
+        total_fn += fn
+        total_tn += tn
 
-    with open(log_path, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(CSV_HEADER)
-        writer.writerows(migrated_rows)
+    metrics = metrics_from_confusion(total_tp, total_fp, total_fn, total_tn)
+    metrics["n_images"] = len(pairs)
+    metrics["threshold"] = float(threshold)
+
+    return metrics
 
 
 def log_experiment(
@@ -367,16 +478,21 @@ def log_experiment(
     architecture,
     encoder,
     augmentation_type,
+    protocol,
+    train_image_ids,
+    val_image_ids,
+    test_image_ids,
+    train_tiles,
+    val_tiles,
+    test_images,
+    test_min_area,
+    test_open_kernel_size,
     epochs,
     batch_size,
     lr,
     best_epoch,
-    best_val_dice_threshold_05,
-    best_val_iou_threshold_05,
-    best_val_loss,
-    best_threshold,
-    best_threshold_val_dice,
-    best_threshold_val_iou,
+    val_metrics,
+    test_metrics,
 ):
     log_dir = os.path.dirname(log_path)
     if log_dir:
@@ -385,7 +501,17 @@ def log_experiment(
     file_exists = os.path.exists(log_path)
 
     if file_exists:
-        ensure_experiment_log_header(log_path)
+        with open(log_path, "r", newline="") as f:
+            reader = csv.reader(f)
+            existing_header = next(reader, None)
+
+        if existing_header != CSV_HEADER:
+            raise ValueError(
+                f"CSV header mismatch in {log_path}.\n"
+                f"Expected: {CSV_HEADER}\n"
+                f"Found:    {existing_header}\n"
+                "Start a new experiment CSV or update the header before logging this experiment."
+            )
 
     with open(log_path, "a", newline="") as f:
         writer = csv.writer(f)
@@ -398,16 +524,41 @@ def log_experiment(
             architecture,
             encoder,
             augmentation_type,
+            protocol,
+            describe_image_ids(train_image_ids),
+            describe_image_ids(val_image_ids),
+            describe_image_ids(test_image_ids),
+            train_tiles,
+            val_tiles,
+            test_images,
+            test_min_area,
+            test_open_kernel_size,
             epochs,
             batch_size,
             lr,
             best_epoch,
-            round(best_val_dice_threshold_05, 4),
-            round(best_val_iou_threshold_05, 4),
-            round(best_val_loss, 4) if best_val_loss is not None else None,
-            round(best_threshold, 2),
-            round(best_threshold_val_dice, 4),
-            round(best_threshold_val_iou, 4),
+            round(val_metrics["loss"], 4),
+            round(val_metrics["dice_threshold_05"], 4),
+            round(val_metrics["iou_threshold_05"], 4),
+            round(val_metrics["precision_threshold_05"], 4),
+            round(val_metrics["recall_threshold_05"], 4),
+            round(val_metrics["accuracy_threshold_05"], 4),
+            round(val_metrics["best_threshold"], 2),
+            round(val_metrics["best_threshold_val_dice"], 4),
+            round(val_metrics["best_threshold_val_iou"], 4),
+            round(val_metrics["best_threshold_val_precision"], 4),
+            round(val_metrics["best_threshold_val_recall"], 4),
+            round(val_metrics["best_threshold_val_accuracy"], 4),
+            round(test_metrics["threshold"], 2),
+            round(test_metrics["iou_building"], 4),
+            round(test_metrics["dice_f1"], 4),
+            round(test_metrics["precision"], 4),
+            round(test_metrics["recall"], 4),
+            round(test_metrics["accuracy"], 4),
+            test_metrics["tp"],
+            test_metrics["fp"],
+            test_metrics["fn"],
+            test_metrics["tn"],
             "",
         ])
 
@@ -473,6 +624,69 @@ def main():
         "data",
         "val_mask_dir",
     )
+    raw_test_image_dir = select_value(
+        args.raw_test_image_dir,
+        config,
+        "evaluation",
+        "raw_test_image_dir",
+        default=get_config_value(config, "data", "raw_train_image_dir"),
+    )
+    raw_test_mask_dir = select_value(
+        args.raw_test_mask_dir,
+        config,
+        "evaluation",
+        "raw_test_mask_dir",
+        default=get_config_value(config, "data", "raw_train_mask_dir"),
+    )
+    train_image_ids = image_id_list(select_value(
+        args.train_image_ids,
+        config,
+        "evaluation",
+        "train_image_ids",
+        default=INRIA_TRAIN_IMAGE_IDS,
+    ))
+    val_image_ids = image_id_list(select_value(
+        args.val_image_ids,
+        config,
+        "evaluation",
+        "val_image_ids",
+        default=INRIA_VAL_IMAGE_IDS,
+    ))
+    test_image_ids = image_id_list(select_value(
+        args.test_image_ids,
+        config,
+        "evaluation",
+        "test_image_ids",
+        default=INRIA_TEST_IMAGE_IDS,
+    ))
+    eval_tile_size = select_value(
+        args.eval_tile_size,
+        config,
+        "evaluation",
+        "tile_size",
+        default=get_config_value(config, "inference", "tile_size", default=256),
+    )
+    eval_stride = select_value(
+        args.eval_stride,
+        config,
+        "evaluation",
+        "stride",
+        default=get_config_value(config, "inference", "stride", default=128),
+    )
+    eval_min_area = select_value(
+        args.eval_min_area,
+        config,
+        "evaluation",
+        "min_area",
+        default=get_config_value(config, "inference", "min_area", default=0),
+    )
+    eval_open_kernel_size = select_value(
+        args.eval_open_kernel_size,
+        config,
+        "evaluation",
+        "open_kernel_size",
+        default=get_config_value(config, "inference", "open_kernel_size", default=0),
+    )
     model_dir = select_value(args.model_dir, config, "model", "model_dir", default="models")
     log_path = select_value(
         args.experiment_log_path,
@@ -493,6 +707,12 @@ def main():
     if val_mask_dir is None:
         raise ValueError("No validation mask directory provided. Set data.val_mask_dir or pass --val_mask_dir.")
 
+    if raw_test_image_dir is None:
+        raise ValueError("No raw test image directory provided. Set evaluation.raw_test_image_dir or pass --raw_test_image_dir.")
+
+    if raw_test_mask_dir is None:
+        raise ValueError("No raw test mask directory provided. Set evaluation.raw_test_mask_dir or pass --raw_test_mask_dir.")
+
     if log_path is None:
         raise ValueError("No experiment log path provided. Set training.experiment_log_path or pass --experiment_log_path.")
 
@@ -509,6 +729,16 @@ def main():
     print("Augmentation type:", augmentation_type)
     print("Train images:", train_image_dir)
     print("Validation images:", val_image_dir)
+    print("INRIA protocol:", "public_155_internal_val")
+    print("Protocol train image ids:", describe_image_ids(train_image_ids))
+    print("Protocol val image ids:", describe_image_ids(val_image_ids))
+    print("Protocol test image ids:", describe_image_ids(test_image_ids))
+    print("Full-image test images:", raw_test_image_dir)
+    print("Full-image test masks:", raw_test_mask_dir)
+    print("Full-image test tile size:", eval_tile_size)
+    print("Full-image test stride:", eval_stride)
+    print("Full-image test min area:", eval_min_area)
+    print("Full-image test open kernel size:", eval_open_kernel_size)
     print("Model path:", model_path)
     print("Experiment log:", log_path)
     print("Mixed precision:", DEVICE == "cuda")
@@ -555,13 +785,16 @@ def main():
     def loss_fn(logits, masks):
         return dice_loss(logits, masks) + bce_loss(logits, masks)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=lr,
+        weight_decay=1e-4,
+    )
 
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
-        mode="max",
-        factor=0.5,
-        patience=2,
+        T_max=epochs,
+        eta_min=1e-6,
     )
 
     scaler = torch.amp.GradScaler(
@@ -572,8 +805,10 @@ def main():
     best_checkpoint_dice = 0.0
     best_val_dice_threshold_05 = 0.0
     best_val_iou_threshold_05 = 0.0
+    best_val_accuracy_threshold_05 = 0.0
     best_threshold = 0.5
     best_threshold_val_iou = 0.0
+    best_threshold_val_accuracy = 0.0
     best_epoch = 0
     experiment_start_time = time.monotonic()
     epoch_durations = []
@@ -620,8 +855,6 @@ def main():
             desc="Val",
         )
 
-        scheduler.step(val_metrics["best_threshold_val_dice"])
-
         current_lr = optimizer.param_groups[0]["lr"]
         print(f"Current LR: {current_lr:.6f}")
 
@@ -631,9 +864,15 @@ def main():
             f"Val Loss: {val_metrics['loss']:.4f} | "
             f"Val Dice @0.5: {val_metrics['dice_threshold_05']:.4f} | "
             f"Val IoU @0.5: {val_metrics['iou_threshold_05']:.4f} | "
+            f"Val Precision @0.5: {val_metrics['precision_threshold_05']:.4f} | "
+            f"Val Recall @0.5: {val_metrics['recall_threshold_05']:.4f} | "
+            f"Val Accuracy @0.5: {val_metrics['accuracy_threshold_05']:.4f} | "
             f"Best threshold: {val_metrics['best_threshold']:.2f} | "
             f"Best Dice: {val_metrics['best_threshold_val_dice']:.4f} | "
-            f"Best IoU: {val_metrics['best_threshold_val_iou']:.4f}"
+            f"Best IoU: {val_metrics['best_threshold_val_iou']:.4f} | "
+            f"Best Precision: {val_metrics['best_threshold_val_precision']:.4f} | "
+            f"Best Recall: {val_metrics['best_threshold_val_recall']:.4f} | "
+            f"Best Accuracy: {val_metrics['best_threshold_val_accuracy']:.4f}"
         )
 
         epoch_duration = time.monotonic() - epoch_start_time
@@ -658,17 +897,23 @@ def main():
             best_checkpoint_dice = val_metrics["best_threshold_val_dice"]
             best_val_dice_threshold_05 = val_metrics["dice_threshold_05"]
             best_val_iou_threshold_05 = val_metrics["iou_threshold_05"]
+            best_val_accuracy_threshold_05 = val_metrics["accuracy_threshold_05"]
             best_threshold = val_metrics["best_threshold"]
             best_threshold_val_iou = val_metrics["best_threshold_val_iou"]
+            best_threshold_val_accuracy = val_metrics["best_threshold_val_accuracy"]
             best_epoch = epoch
             torch.save(model.state_dict(), model_path)
             print("Saved best model by tuned validation Dice.")
 
+        scheduler.step()
+
     print(f"\nBest checkpoint Val Dice: {best_checkpoint_dice:.4f}")
     print(f"Best checkpoint Val Dice @0.5: {best_val_dice_threshold_05:.4f}")
     print(f"Best checkpoint Val IoU @0.5: {best_val_iou_threshold_05:.4f}")
+    print(f"Best checkpoint Val Accuracy @0.5: {best_val_accuracy_threshold_05:.4f}")
     print(f"Best checkpoint threshold: {best_threshold:.2f}")
     print(f"Best checkpoint Val IoU: {best_threshold_val_iou:.4f}")
+    print(f"Best checkpoint Val Accuracy: {best_threshold_val_accuracy:.4f}")
     print(f"Best Epoch: {best_epoch}")
 
     state_dict = torch.load(
@@ -689,9 +934,41 @@ def main():
         f"\nBest checkpoint retest | "
         f"Dice @0.5: {final_metrics['dice_threshold_05']:.4f} | "
         f"IoU @0.5: {final_metrics['iou_threshold_05']:.4f} | "
+        f"Precision @0.5: {final_metrics['precision_threshold_05']:.4f} | "
+        f"Recall @0.5: {final_metrics['recall_threshold_05']:.4f} | "
+        f"Accuracy @0.5: {final_metrics['accuracy_threshold_05']:.4f} | "
         f"Best threshold: {final_metrics['best_threshold']:.2f} | "
         f"Best Dice: {final_metrics['best_threshold_val_dice']:.4f} | "
-        f"Best IoU: {final_metrics['best_threshold_val_iou']:.4f}"
+        f"Best IoU: {final_metrics['best_threshold_val_iou']:.4f} | "
+        f"Best Precision: {final_metrics['best_threshold_val_precision']:.4f} | "
+        f"Best Recall: {final_metrics['best_threshold_val_recall']:.4f} | "
+        f"Best Accuracy: {final_metrics['best_threshold_val_accuracy']:.4f}"
+    )
+
+    test_metrics = evaluate_full_images(
+        model=model,
+        image_dir=raw_test_image_dir,
+        mask_dir=raw_test_mask_dir,
+        image_ids=test_image_ids,
+        threshold=final_metrics["best_threshold"],
+        tile_size=eval_tile_size,
+        stride=eval_stride,
+        min_area=eval_min_area,
+        open_kernel_size=eval_open_kernel_size,
+    )
+
+    print(
+        "\nINRIA(155) held-out full-image test | "
+        f"threshold: {test_metrics['threshold']:.2f} | "
+        f"IoU_building: {test_metrics['iou_building']:.4f} | "
+        f"Dice/F1: {test_metrics['dice_f1']:.4f} | "
+        f"Precision: {test_metrics['precision']:.4f} | "
+        f"Recall: {test_metrics['recall']:.4f} | "
+        f"Accuracy: {test_metrics['accuracy']:.4f} | "
+        f"TP: {test_metrics['tp']} | "
+        f"FP: {test_metrics['fp']} | "
+        f"FN: {test_metrics['fn']} | "
+        f"TN: {test_metrics['tn']}"
     )
 
     log_experiment(
@@ -700,16 +977,21 @@ def main():
         architecture=architecture,
         encoder=encoder,
         augmentation_type=augmentation_type,
+        protocol="inria155_public_holdout_internal_val",
+        train_image_ids=train_image_ids,
+        val_image_ids=val_image_ids,
+        test_image_ids=test_image_ids,
+        train_tiles=len(train_dataset),
+        val_tiles=len(val_dataset),
+        test_images=test_metrics["n_images"],
+        test_min_area=eval_min_area,
+        test_open_kernel_size=eval_open_kernel_size,
         epochs=epochs,
         batch_size=batch_size,
         lr=lr,
         best_epoch=best_epoch,
-        best_val_dice_threshold_05=final_metrics["dice_threshold_05"],
-        best_val_iou_threshold_05=final_metrics["iou_threshold_05"],
-        best_val_loss=final_metrics["loss"],
-        best_threshold=final_metrics["best_threshold"],
-        best_threshold_val_dice=final_metrics["best_threshold_val_dice"],
-        best_threshold_val_iou=final_metrics["best_threshold_val_iou"],
+        val_metrics=final_metrics,
+        test_metrics=test_metrics,
     )
 
 
