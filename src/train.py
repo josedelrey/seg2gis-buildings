@@ -8,20 +8,16 @@ from datetime import datetime, timedelta
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-import cv2
 import segmentation_models_pytorch as smp
 from tqdm import tqdm
 
 from config import DEFAULT_CONFIG_PATH, get_config_value, load_config, resolve_model_path
 from dataset import (
     BuildingDataset,
-    collect_image_mask_pairs,
     describe_image_ids,
     image_id_list,
 )
-from gis_utils import load_rgb_image, predict_full_image_tiled
 from models import build_model
-from postprocess import postprocess_mask
 from transforms import get_train_transform, get_val_transform
 
 
@@ -261,94 +257,6 @@ def find_best_threshold(model, loader, loss_fn):
     return metrics
 
 
-def confusion_from_masks(pred_mask, target_mask):
-    pred = pred_mask.astype(bool)
-    target = target_mask.astype(bool)
-
-    tp = int(np.logical_and(pred, target).sum())
-    fp = int(np.logical_and(pred, np.logical_not(target)).sum())
-    fn = int(np.logical_and(np.logical_not(pred), target).sum())
-    tn = int(np.logical_and(np.logical_not(pred), np.logical_not(target)).sum())
-
-    return tp, fp, fn, tn
-
-
-def metrics_from_confusion(tp, fp, fn, tn, eps=1e-7):
-    return {
-        "tp": int(tp),
-        "fp": int(fp),
-        "fn": int(fn),
-        "tn": int(tn),
-        "iou_building": float((tp + eps) / (tp + fp + fn + eps)),
-        "dice_f1": float((2 * tp + eps) / (2 * tp + fp + fn + eps)),
-        "precision": float((tp + eps) / (tp + fp + eps)),
-        "recall": float((tp + eps) / (tp + fn + eps)),
-        "accuracy": float((tp + tn + eps) / (tp + fp + fn + tn + eps)),
-    }
-
-
-def evaluate_full_images(
-    model,
-    image_dir,
-    mask_dir,
-    image_ids,
-    threshold,
-    tile_size,
-    stride,
-    min_area,
-    open_kernel_size,
-):
-    pairs = collect_image_mask_pairs(image_dir, mask_dir, image_ids)
-
-    total_tp = 0
-    total_fp = 0
-    total_fn = 0
-    total_tn = 0
-
-    model.eval()
-
-    for image_path, mask_path in tqdm(pairs, desc="INRIA(155) full-image test"):
-        image_rgb = load_rgb_image(image_path)
-        target_mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-
-        if target_mask is None:
-            raise RuntimeError(f"Could not read mask: {mask_path}")
-
-        target_mask = target_mask > 127
-
-        prob_map = predict_full_image_tiled(
-            model=model,
-            image_rgb=image_rgb,
-            tile_size=tile_size,
-            stride=stride,
-            device=DEVICE,
-        )
-        pred_mask = prob_map >= threshold
-        pred_mask = postprocess_mask(
-            pred_mask.astype(np.uint8),
-            min_area=min_area,
-            open_kernel_size=open_kernel_size,
-        ).astype(bool)
-
-        if pred_mask.shape != target_mask.shape:
-            raise RuntimeError(
-                f"Prediction/target shape mismatch for {image_path}: "
-                f"{pred_mask.shape} vs {target_mask.shape}"
-            )
-
-        tp, fp, fn, tn = confusion_from_masks(pred_mask, target_mask)
-        total_tp += tp
-        total_fp += fp
-        total_fn += fn
-        total_tn += tn
-
-    metrics = metrics_from_confusion(total_tp, total_fp, total_fn, total_tn)
-    metrics["n_images"] = len(pairs)
-    metrics["threshold"] = float(threshold)
-
-    return metrics
-
-
 def log_experiment(
     log_path,
     run_name,
@@ -361,15 +269,11 @@ def log_experiment(
     test_image_ids,
     train_tiles,
     val_tiles,
-    test_images,
-    test_min_area,
-    test_open_kernel_size,
     epochs,
     batch_size,
     lr,
     best_epoch,
     val_metrics,
-    test_metrics,
 ):
     log_dir = os.path.dirname(log_path)
     if log_dir:
@@ -407,9 +311,9 @@ def log_experiment(
             describe_image_ids(test_image_ids),
             train_tiles,
             val_tiles,
-            test_images,
-            test_min_area,
-            test_open_kernel_size,
+            "",
+            "",
+            "",
             epochs,
             batch_size,
             lr,
@@ -426,16 +330,16 @@ def log_experiment(
             round(val_metrics["best_threshold_val_precision"], 4),
             round(val_metrics["best_threshold_val_recall"], 4),
             round(val_metrics["best_threshold_val_accuracy"], 4),
-            round(test_metrics["threshold"], 2),
-            round(test_metrics["iou_building"], 4),
-            round(test_metrics["dice_f1"], 4),
-            round(test_metrics["precision"], 4),
-            round(test_metrics["recall"], 4),
-            round(test_metrics["accuracy"], 4),
-            test_metrics["tp"],
-            test_metrics["fp"],
-            test_metrics["fn"],
-            test_metrics["tn"],
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
             "",
         ])
 
@@ -458,15 +362,9 @@ def main():
     train_mask_dir = require_config_value(config, "data", "train_mask_dir")
     val_image_dir = require_config_value(config, "data", "val_image_dir")
     val_mask_dir = require_config_value(config, "data", "val_mask_dir")
-    raw_test_image_dir = require_config_value(config, "evaluation", "raw_test_image_dir")
-    raw_test_mask_dir = require_config_value(config, "evaluation", "raw_test_mask_dir")
     train_image_ids = image_id_list(require_config_value(config, "protocol", "train_image_ids"))
     val_image_ids = image_id_list(require_config_value(config, "protocol", "val_image_ids"))
     test_image_ids = image_id_list(require_config_value(config, "protocol", "test_image_ids"))
-    eval_tile_size = require_config_value(config, "evaluation", "tile_size")
-    eval_stride = require_config_value(config, "evaluation", "stride")
-    eval_min_area = require_config_value(config, "evaluation", "min_area")
-    eval_open_kernel_size = require_config_value(config, "evaluation", "open_kernel_size")
     model_dir = require_config_value(config, "model", "model_dir")
     log_path = require_config_value(config, "training", "experiment_log_path")
 
@@ -487,12 +385,6 @@ def main():
     print("Protocol train image ids:", describe_image_ids(train_image_ids))
     print("Protocol val image ids:", describe_image_ids(val_image_ids))
     print("Protocol test image ids:", describe_image_ids(test_image_ids))
-    print("Full-image test images:", raw_test_image_dir)
-    print("Full-image test masks:", raw_test_mask_dir)
-    print("Full-image test tile size:", eval_tile_size)
-    print("Full-image test stride:", eval_stride)
-    print("Full-image test min area:", eval_min_area)
-    print("Full-image test open kernel size:", eval_open_kernel_size)
     print("Model path:", model_path)
     print("Experiment log:", log_path)
     print("Mixed precision:", DEVICE == "cuda")
@@ -699,32 +591,6 @@ def main():
         f"Best Accuracy: {final_metrics['best_threshold_val_accuracy']:.4f}"
     )
 
-    test_metrics = evaluate_full_images(
-        model=model,
-        image_dir=raw_test_image_dir,
-        mask_dir=raw_test_mask_dir,
-        image_ids=test_image_ids,
-        threshold=final_metrics["best_threshold"],
-        tile_size=eval_tile_size,
-        stride=eval_stride,
-        min_area=eval_min_area,
-        open_kernel_size=eval_open_kernel_size,
-    )
-
-    print(
-        "\nINRIA(155) held-out full-image test | "
-        f"threshold: {test_metrics['threshold']:.2f} | "
-        f"IoU_building: {test_metrics['iou_building']:.4f} | "
-        f"Dice/F1: {test_metrics['dice_f1']:.4f} | "
-        f"Precision: {test_metrics['precision']:.4f} | "
-        f"Recall: {test_metrics['recall']:.4f} | "
-        f"Accuracy: {test_metrics['accuracy']:.4f} | "
-        f"TP: {test_metrics['tp']} | "
-        f"FP: {test_metrics['fp']} | "
-        f"FN: {test_metrics['fn']} | "
-        f"TN: {test_metrics['tn']}"
-    )
-
     log_experiment(
         log_path=log_path,
         run_name=run_name,
@@ -737,15 +603,11 @@ def main():
         test_image_ids=test_image_ids,
         train_tiles=len(train_dataset),
         val_tiles=len(val_dataset),
-        test_images=test_metrics["n_images"],
-        test_min_area=eval_min_area,
-        test_open_kernel_size=eval_open_kernel_size,
         epochs=epochs,
         batch_size=batch_size,
         lr=lr,
         best_epoch=best_epoch,
         val_metrics=final_metrics,
-        test_metrics=test_metrics,
     )
 
 

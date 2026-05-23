@@ -38,6 +38,7 @@
   "evaluation": {
     "raw_test_image_dir": "data/AerialImageDataset/train/images",
     "raw_test_mask_dir": "data/AerialImageDataset/train/gt",
+    "threshold": 0.5,
     "tile_size": 256,
     "stride": 128,
     "min_area": 500,

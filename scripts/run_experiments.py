@@ -35,6 +35,7 @@ EXPERIMENT_FIELD_PATHS = {
     "train_image_ids": ("protocol", "train_image_ids"),
     "val_image_ids": ("protocol", "val_image_ids"),
     "test_image_ids": ("protocol", "test_image_ids"),
+    "eval_threshold": ("evaluation", "threshold"),
     "eval_tile_size": ("evaluation", "tile_size"),
     "eval_stride": ("evaluation", "stride"),
     "eval_min_area": ("evaluation", "min_area"),

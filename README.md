@@ -119,6 +119,8 @@ src/
   config.py         Small JSON config loader used by scripts
   dataset.py        Dataset wrapper for image / mask tiles
   train.py          Training, validation, threshold tuning, experiment logging
+  evaluate.py       Final held-out full-image evaluation
+  metrics.py        Reusable confusion-matrix metric helpers
   gis_utils.py      Model loading and tiled full-image inference helpers
   postprocess.py    Binary mask cleanup utilities
   vectorize.py      Contour extraction, polygon overlay, and geospatial vector export utilities
@@ -204,7 +206,7 @@ Most project defaults are kept in:
 configs/default.json
 ```
 
-The config stores the main data paths, tiling settings, model architecture, encoder, training settings, inference threshold, tile size, stride, vector export settings, and output directories. Training reads these values from JSON only; experiment YAML files override the base JSON through `scripts/run_experiments.py`.
+The config stores the main data paths, tiling settings, model architecture, encoder, training settings, evaluation settings, inference threshold, tile size, stride, vector export settings, and output directories. Training reads these values from JSON only; experiment YAML files override the base JSON through `scripts/run_experiments.py`.
 
 For example, this uses the default config:
 
@@ -236,6 +238,12 @@ Train a model:
 
 ```bash
 python src/train.py --config configs/default.json
+```
+
+Run final held-out full-image evaluation:
+
+```bash
+python src/evaluate.py
 ```
 
 Run a batch of experiments from a YAML file:
