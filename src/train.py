@@ -16,9 +16,6 @@ from config import DEFAULT_CONFIG_PATH, get_config_value, load_config, resolve_m
 from dataset import BuildingDataset
 from gis_utils import load_rgb_image, predict_full_image_tiled
 from inria_split import (
-    INRIA_TEST_IMAGE_IDS,
-    INRIA_TRAIN_IMAGE_IDS,
-    INRIA_VAL_IMAGE_IDS,
     collect_image_mask_pairs,
     describe_image_ids,
     image_id_list,
@@ -78,64 +75,28 @@ THRESHOLD_VALUES = tuple(round(float(t), 2) for t in np.arange(0.30, 0.801, 0.01
 
 def parse_args():
     parser = argparse.ArgumentParser()
-
     parser.add_argument("--config", type=str, default=DEFAULT_CONFIG_PATH)
-
-    parser.add_argument("--run_name", type=str, default=None)
-    parser.add_argument("--architecture", type=str, default=None)
-    parser.add_argument("--encoder", type=str, default=None)
-
-    parser.add_argument("--batch_size", type=int, default=None)
-    parser.add_argument("--epochs", type=int, default=None)
-    parser.add_argument("--lr", type=float, default=None)
-
-    parser.add_argument(
-        "--augmentation",
-        type=parse_bool,
-        default=None,
-    )
-
-    parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--train_image_dir", type=str, default=None)
-    parser.add_argument("--train_mask_dir", type=str, default=None)
-    parser.add_argument("--val_image_dir", type=str, default=None)
-    parser.add_argument("--val_mask_dir", type=str, default=None)
-    parser.add_argument("--raw_test_image_dir", type=str, default=None)
-    parser.add_argument("--raw_test_mask_dir", type=str, default=None)
-    parser.add_argument("--train_image_ids", type=str, default=None)
-    parser.add_argument("--val_image_ids", type=str, default=None)
-    parser.add_argument("--test_image_ids", type=str, default=None)
-    parser.add_argument("--eval_tile_size", type=int, default=None)
-    parser.add_argument("--eval_stride", type=int, default=None)
-    parser.add_argument("--eval_min_area", type=int, default=None)
-    parser.add_argument("--eval_open_kernel_size", type=int, default=None)
-    parser.add_argument("--model_dir", type=str, default=None)
-    parser.add_argument("--experiment_log_path", type=str, default=None)
-
     return parser.parse_args()
 
 
-def select_value(cli_value, config, *keys, default=None):
-    if cli_value is not None:
-        return cli_value
-    return get_config_value(config, *keys, default=default)
+def require_config_value(config, *keys):
+    value = get_config_value(config, *keys)
+
+    if value is None:
+        dotted_key = ".".join(keys)
+        raise ValueError(f"Missing required config value: {dotted_key}")
+
+    return value
 
 
-def parse_bool(value):
-    if isinstance(value, bool):
-        return value
+def require_bool_config(config, *keys):
+    value = require_config_value(config, *keys)
 
-    normalized = str(value).strip().lower()
+    if not isinstance(value, bool):
+        dotted_key = ".".join(keys)
+        raise TypeError(f"{dotted_key} must be a JSON boolean true/false value.")
 
-    if normalized in ("true", "1", "yes", "y"):
-        return True
-
-    if normalized in ("false", "0", "no", "n"):
-        return False
-
-    raise argparse.ArgumentTypeError(
-        f"Expected a boolean true/false value, got: {value}"
-    )
+    return value
 
 
 def format_duration(seconds):
@@ -483,154 +444,31 @@ def main():
     args = parse_args()
     config = load_config(args.config)
 
-    run_name = select_value(
-        args.run_name,
-        config,
-        "training",
-        "run_name",
-        default="experiment",
-    )
-    architecture = select_value(
-        args.architecture,
-        config,
-        "model",
-        "architecture",
-        default="unet",
-    )
-    encoder = select_value(
-        args.encoder,
-        config,
-        "model",
-        "encoder",
-        default="efficientnet-b3",
-    )
-    batch_size = select_value(args.batch_size, config, "training", "batch_size", default=8)
-    epochs = select_value(args.epochs, config, "training", "epochs", default=10)
-    lr = select_value(args.lr, config, "training", "lr", default=1e-4)
-    augmentation = parse_bool(select_value(
-        args.augmentation,
-        config,
-        "training",
-        "augmentation",
-        default=False,
-    ))
-    seed = select_value(args.seed, config, "training", "seed", default=42)
+    run_name = require_config_value(config, "training", "run_name")
+    architecture = require_config_value(config, "model", "architecture")
+    encoder = require_config_value(config, "model", "encoder")
+    batch_size = require_config_value(config, "training", "batch_size")
+    epochs = require_config_value(config, "training", "epochs")
+    lr = require_config_value(config, "training", "lr")
+    augmentation = require_bool_config(config, "training", "augmentation")
+    seed = require_config_value(config, "training", "seed")
 
-    train_image_dir = select_value(
-        args.train_image_dir,
-        config,
-        "data",
-        "train_image_dir",
-    )
-    train_mask_dir = select_value(
-        args.train_mask_dir,
-        config,
-        "data",
-        "train_mask_dir",
-    )
-    val_image_dir = select_value(
-        args.val_image_dir,
-        config,
-        "data",
-        "val_image_dir",
-    )
-    val_mask_dir = select_value(
-        args.val_mask_dir,
-        config,
-        "data",
-        "val_mask_dir",
-    )
-    raw_test_image_dir = select_value(
-        args.raw_test_image_dir,
-        config,
-        "evaluation",
-        "raw_test_image_dir",
-        default=get_config_value(config, "data", "raw_train_image_dir"),
-    )
-    raw_test_mask_dir = select_value(
-        args.raw_test_mask_dir,
-        config,
-        "evaluation",
-        "raw_test_mask_dir",
-        default=get_config_value(config, "data", "raw_train_mask_dir"),
-    )
-    train_image_ids = image_id_list(select_value(
-        args.train_image_ids,
-        config,
-        "evaluation",
-        "train_image_ids",
-        default=INRIA_TRAIN_IMAGE_IDS,
-    ))
-    val_image_ids = image_id_list(select_value(
-        args.val_image_ids,
-        config,
-        "evaluation",
-        "val_image_ids",
-        default=INRIA_VAL_IMAGE_IDS,
-    ))
-    test_image_ids = image_id_list(select_value(
-        args.test_image_ids,
-        config,
-        "evaluation",
-        "test_image_ids",
-        default=INRIA_TEST_IMAGE_IDS,
-    ))
-    eval_tile_size = select_value(
-        args.eval_tile_size,
-        config,
-        "evaluation",
-        "tile_size",
-        default=get_config_value(config, "inference", "tile_size", default=256),
-    )
-    eval_stride = select_value(
-        args.eval_stride,
-        config,
-        "evaluation",
-        "stride",
-        default=get_config_value(config, "inference", "stride", default=128),
-    )
-    eval_min_area = select_value(
-        args.eval_min_area,
-        config,
-        "evaluation",
-        "min_area",
-        default=get_config_value(config, "inference", "min_area", default=0),
-    )
-    eval_open_kernel_size = select_value(
-        args.eval_open_kernel_size,
-        config,
-        "evaluation",
-        "open_kernel_size",
-        default=get_config_value(config, "inference", "open_kernel_size", default=0),
-    )
-    model_dir = select_value(args.model_dir, config, "model", "model_dir", default="models")
-    log_path = select_value(
-        args.experiment_log_path,
-        config,
-        "training",
-        "experiment_log_path",
-    )
-
-    if train_image_dir is None:
-        raise ValueError("No training image directory provided. Set data.train_image_dir or pass --train_image_dir.")
-
-    if train_mask_dir is None:
-        raise ValueError("No training mask directory provided. Set data.train_mask_dir or pass --train_mask_dir.")
-
-    if val_image_dir is None:
-        raise ValueError("No validation image directory provided. Set data.val_image_dir or pass --val_image_dir.")
-
-    if val_mask_dir is None:
-        raise ValueError("No validation mask directory provided. Set data.val_mask_dir or pass --val_mask_dir.")
-
-    if raw_test_image_dir is None:
-        raise ValueError("No raw test image directory provided. Set evaluation.raw_test_image_dir or pass --raw_test_image_dir.")
-
-    if raw_test_mask_dir is None:
-        raise ValueError("No raw test mask directory provided. Set evaluation.raw_test_mask_dir or pass --raw_test_mask_dir.")
-
-    if log_path is None:
-        raise ValueError("No experiment log path provided. Set training.experiment_log_path or pass --experiment_log_path.")
+    protocol = require_config_value(config, "evaluation", "protocol")
+    train_image_dir = require_config_value(config, "data", "train_image_dir")
+    train_mask_dir = require_config_value(config, "data", "train_mask_dir")
+    val_image_dir = require_config_value(config, "data", "val_image_dir")
+    val_mask_dir = require_config_value(config, "data", "val_mask_dir")
+    raw_test_image_dir = require_config_value(config, "evaluation", "raw_test_image_dir")
+    raw_test_mask_dir = require_config_value(config, "evaluation", "raw_test_mask_dir")
+    train_image_ids = image_id_list(require_config_value(config, "evaluation", "train_image_ids"))
+    val_image_ids = image_id_list(require_config_value(config, "evaluation", "val_image_ids"))
+    test_image_ids = image_id_list(require_config_value(config, "evaluation", "test_image_ids"))
+    eval_tile_size = require_config_value(config, "evaluation", "tile_size")
+    eval_stride = require_config_value(config, "evaluation", "stride")
+    eval_min_area = require_config_value(config, "evaluation", "min_area")
+    eval_open_kernel_size = require_config_value(config, "evaluation", "open_kernel_size")
+    model_dir = require_config_value(config, "model", "model_dir")
+    log_path = require_config_value(config, "training", "experiment_log_path")
 
     model_path = resolve_model_path(model_dir, run_name)
 
@@ -645,7 +483,7 @@ def main():
     print("Augmentation:", augmentation)
     print("Train images:", train_image_dir)
     print("Validation images:", val_image_dir)
-    print("INRIA protocol:", "public_155_internal_val")
+    print("INRIA protocol:", protocol)
     print("Protocol train image ids:", describe_image_ids(train_image_ids))
     print("Protocol val image ids:", describe_image_ids(val_image_ids))
     print("Protocol test image ids:", describe_image_ids(test_image_ids))
@@ -893,7 +731,7 @@ def main():
         architecture=architecture,
         encoder=encoder,
         augmentation=augmentation,
-        protocol="inria155_public_holdout_internal_val",
+        protocol=protocol,
         train_image_ids=train_image_ids,
         val_image_ids=val_image_ids,
         test_image_ids=test_image_ids,

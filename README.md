@@ -208,20 +208,12 @@ Most project defaults are kept in:
 configs/default.json
 ```
 
-The config stores the main data paths, tiling settings, model architecture, encoder, training defaults, inference threshold, tile size, stride, vector export settings, and output directories. The scripts load this file by default, and command-line arguments can still override individual values.
+The config stores the main data paths, tiling settings, model architecture, encoder, training settings, inference threshold, tile size, stride, vector export settings, and output directories. Training reads these values from JSON only; experiment YAML files override the base JSON through `scripts/run_experiments.py`.
 
 For example, this uses the default config:
 
 ```bash
 python src/train.py
-```
-
-This uses the default config but overrides the run name and augmentation flag:
-
-```bash
-python src/train.py \
-  --run_name unet_effb3_256_aug_e10 \
-  --augmentation true
 ```
 
 To use another config file:
@@ -247,15 +239,7 @@ python scripts/prepare_tiles.py --config configs/default.json
 Train a model:
 
 ```bash
-python src/train.py \
-  --config configs/default.json \
-  --run_name unet_effb3_256_noaug_e10 \
-  --architecture unet \
-  --encoder efficientnet-b3 \
-  --batch_size 8 \
-  --epochs 10 \
-  --lr 0.0001 \
-  --augmentation false
+python src/train.py --config configs/default.json
 ```
 
 Run a batch of experiments from a YAML file:
