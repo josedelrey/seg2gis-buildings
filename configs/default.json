@@ -11,13 +11,15 @@
     "test_image_dir": "data/tiles_256_inria155/test/images",
     "test_mask_dir": "data/tiles_256_inria155/test/masks"
   },
-  "tiling": {
-    "protocol": "inria155_public_holdout_internal_val",
-    "tile_size": 256,
-    "stride": 256,
+  "protocol": {
+    "name": "inria155_public_holdout_internal_val",
     "train_image_ids": [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36],
     "val_image_ids": [6, 7, 8, 9, 10],
     "test_image_ids": [1, 2, 3, 4, 5]
+  },
+  "tiling": {
+    "tile_size": 256,
+    "stride": 256
   },
   "model": {
     "architecture": "unet",
@@ -34,31 +36,12 @@
     "experiment_log_path": "results/experiments_inria155.csv"
   },
   "evaluation": {
-    "protocol": "inria155_public_holdout_internal_val",
     "raw_test_image_dir": "data/AerialImageDataset/train/images",
     "raw_test_mask_dir": "data/AerialImageDataset/train/gt",
-    "train_image_ids": [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36],
-    "val_image_ids": [6, 7, 8, 9, 10],
-    "test_image_ids": [1, 2, 3, 4, 5],
     "tile_size": 256,
     "stride": 128,
     "min_area": 500,
     "open_kernel_size": 5
-  },
-  "analysis": {
-    "models_dir": "models",
-    "experiments_csv": "results/experiments_phase2_augmentation.csv",
-    "prediction_out_dir": "outputs/predictions",
-    "comparison_out_dir": "outputs/model_comparisons",
-    "augmentation": true,
-    "num_samples": 4,
-    "num_augs": 4,
-    "num_prediction_grids": 1,
-    "num_comparison_samples": 8,
-    "seed": 42,
-    "threshold": 0.5,
-    "min_mask_pixels": 100,
-    "plots_per_row": 4
   },
   "inference": {
     "image_path": null,

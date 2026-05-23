@@ -18,6 +18,7 @@ REQUIRED_EXPERIMENT_FIELDS = ("run_name", "architecture", "encoder", "augmentati
 
 EXPERIMENT_FIELD_PATHS = {
     "run_name": ("training", "run_name"),
+    "protocol": ("protocol", "name"),
     "architecture": ("model", "architecture"),
     "encoder": ("model", "encoder"),
     "augmentation": ("training", "augmentation"),
@@ -31,9 +32,9 @@ EXPERIMENT_FIELD_PATHS = {
     "val_mask_dir": ("data", "val_mask_dir"),
     "raw_test_image_dir": ("evaluation", "raw_test_image_dir"),
     "raw_test_mask_dir": ("evaluation", "raw_test_mask_dir"),
-    "train_image_ids": ("evaluation", "train_image_ids"),
-    "val_image_ids": ("evaluation", "val_image_ids"),
-    "test_image_ids": ("evaluation", "test_image_ids"),
+    "train_image_ids": ("protocol", "train_image_ids"),
+    "val_image_ids": ("protocol", "val_image_ids"),
+    "test_image_ids": ("protocol", "test_image_ids"),
     "eval_tile_size": ("evaluation", "tile_size"),
     "eval_stride": ("evaluation", "stride"),
     "eval_min_area": ("evaluation", "min_area"),

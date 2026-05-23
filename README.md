@@ -131,11 +131,7 @@ configs/
 scripts/
   prepare_tiles.py          Create train / validation / test tiles
   run_experiments.py        Run selected training experiments
-  visualize_predictions.py  Save validation prediction grids
-  compare_predictions.py    Compare several trained models visually
   predict_full_image.py     Run tiled inference on a larger image
-  empty_analysis.py         Inspect empty vs non-empty mask balance
-  augmentation_analysis.py  Visualize augmentation behavior
 
 results/
   experiments_phase1_noaug_baseline.csv  Baseline no-augmentation experiment results
@@ -255,16 +251,6 @@ Preview the generated commands without starting training:
 python scripts/run_experiments.py \
   --experiments_config configs/experiments_phase1_noaug_baseline.yaml \
   --dry_run
-```
-
-Generate validation prediction grids:
-
-```bash
-python scripts/visualize_predictions.py \
-  --run_name unet_effb3_256_noaug_e10 \
-  --architecture unet \
-  --encoder efficientnet-b3 \
-  --num_samples 4
 ```
 
 Run full-image tiled inference:

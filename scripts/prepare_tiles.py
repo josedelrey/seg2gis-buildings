@@ -188,26 +188,33 @@ def main():
         "raw_test_image_dir",
     )
     out_dir = select_value(args.out_dir, config, "data", "tile_dir")
+    protocol = select_value(
+        None,
+        config,
+        "protocol",
+        "name",
+        default="inria155_public_holdout_internal_val",
+    )
     tile_size = select_value(args.tile_size, config, "tiling", "tile_size", default=256)
     stride = select_value(args.stride, config, "tiling", "stride", default=256)
     train_image_ids = image_id_list(select_value(
         args.train_image_ids,
         config,
-        "tiling",
+        "protocol",
         "train_image_ids",
         default=INRIA_TRAIN_IMAGE_IDS,
     ))
     val_image_ids = image_id_list(select_value(
         args.val_image_ids,
         config,
-        "tiling",
+        "protocol",
         "val_image_ids",
         default=INRIA_VAL_IMAGE_IDS,
     ))
     test_image_ids = image_id_list(select_value(
         args.test_image_ids,
         config,
-        "tiling",
+        "protocol",
         "test_image_ids",
         default=INRIA_TEST_IMAGE_IDS,
     ))
@@ -227,7 +234,7 @@ def main():
     print("Output dir:", out_dir)
     print("Tile size:", tile_size)
     print("Stride:", stride)
-    print("Protocol: INRIA public 155 with internal validation")
+    print("Protocol:", protocol)
     print("Train image ids:", describe_image_ids(train_image_ids))
     print("Validation image ids:", describe_image_ids(val_image_ids))
     print("Test image ids:", describe_image_ids(test_image_ids))
