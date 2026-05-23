@@ -7,22 +7,17 @@ import sys
 import cv2
 import torch
 import matplotlib.pyplot as plt
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
 
-sys.path.append(os.path.abspath("src"))
+sys.path.insert(0, os.path.abspath("src"))
 
 from dataset import BuildingDataset
 from config import DEFAULT_CONFIG_PATH, get_config_value, load_config
 from gis_utils import denormalize_image
 from models import build_model
+from transforms import get_val_transform
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
-IMAGENET_MEAN = (0.485, 0.456, 0.406)
-IMAGENET_STD = (0.229, 0.224, 0.225)
-
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -59,13 +54,6 @@ def select_value(cli_value, config, *keys, default=None):
     if cli_value is not None:
         return cli_value
     return get_config_value(config, *keys, default=default)
-
-
-def get_val_transform():
-    return A.Compose([
-        A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
-        ToTensorV2(),
-    ])
 
 
 def get_valid_indices(dataset, min_mask_pixels):

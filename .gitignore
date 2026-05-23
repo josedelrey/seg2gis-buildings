@@ -5,3 +5,5 @@ __pycache__/
 notes.txt
 *.pyc
 AGENTS.md
+export_context.ps1
+repo_context.txt

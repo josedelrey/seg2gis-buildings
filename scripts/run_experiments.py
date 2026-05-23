@@ -14,7 +14,7 @@ REQUIRED_EXPERIMENT_FIELDS = [
     "run_name",
     "architecture",
     "encoder",
-    "augmentation_type",
+    "augmentation",
 ]
 
 OPTIONAL_TRAIN_ARGS = [
@@ -123,6 +123,9 @@ def build_command(exp, project_config):
 
         if value is None:
             continue
+
+        if isinstance(value, bool):
+            value = str(value).lower()
 
         command.extend([f"--{field}", str(value)])
 

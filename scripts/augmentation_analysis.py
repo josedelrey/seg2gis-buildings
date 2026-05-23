@@ -7,11 +7,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-sys.path.append(os.path.abspath("src"))
+sys.path.insert(0, os.path.abspath("src"))
 
 from dataset import BuildingDataset
 from config import DEFAULT_CONFIG_PATH, get_config_value, load_config
-from train import IMAGENET_MEAN, IMAGENET_STD, get_train_transform
+from transforms import IMAGENET_MEAN, IMAGENET_STD, get_train_transform
 
 
 def parse_args():
@@ -22,10 +22,9 @@ def parse_args():
     parser.add_argument("--mask_dir", type=str, default=None)
 
     parser.add_argument(
-        "--augmentation_type",
-        type=str,
+        "--augmentation",
+        type=parse_bool,
         default=None,
-        choices=["noaug", "geomaug", "mildaug", "strongaug"],
     )
 
     parser.add_argument("--num_samples", type=int, default=None)
@@ -39,6 +38,23 @@ def select_value(cli_value, config, *keys, default=None):
     if cli_value is not None:
         return cli_value
     return get_config_value(config, *keys, default=default)
+
+
+def parse_bool(value):
+    if isinstance(value, bool):
+        return value
+
+    normalized = str(value).strip().lower()
+
+    if normalized in ("true", "1", "yes", "y"):
+        return True
+
+    if normalized in ("false", "0", "no", "n"):
+        return False
+
+    raise argparse.ArgumentTypeError(
+        f"Expected a boolean true/false value, got: {value}"
+    )
 
 
 def tensor_img_to_uint8(img):
@@ -95,13 +111,13 @@ def main():
         "data",
         "train_mask_dir",
     )
-    augmentation_type = select_value(
-        args.augmentation_type,
+    augmentation = parse_bool(select_value(
+        args.augmentation,
         config,
         "analysis",
-        "augmentation_type",
-        default="mildaug",
-    )
+        "augmentation",
+        default=True,
+    ))
     num_samples_arg = select_value(
         args.num_samples,
         config,
@@ -127,10 +143,10 @@ def main():
     random.seed(seed)
     np.random.seed(seed)
 
-    transform = get_train_transform(augmentation_type)
+    transform = get_train_transform(augmentation)
 
-    if transform is None:
-        print("augmentation_type=noaug selected. Showing repeated originals.")
+    if not augmentation:
+        print("augmentation=false selected. Showing repeated originals.")
 
     dataset = BuildingDataset(
         image_dir,
@@ -149,23 +165,19 @@ def main():
 
         fig, axes = plt.subplots(
             1,
-            args.num_augs + 1,
-            figsize=(4 * (args.num_augs + 1), 4),
+            num_augs + 1,
+            figsize=(4 * (num_augs + 1), 4),
         )
 
         plt.sca(axes[0])
         plot_sample(img_np, title=f"Original idx={idx}")
 
-        for i in range(args.num_augs):
-            if transform is None:
-                aug_img = img_np.copy()
-                aug_mask = mask_np.copy()
-            else:
-                augmented = transform(image=img_np, mask=mask_np)
-                aug_img = to_display_image(augmented["image"])
+        for i in range(num_augs):
+            augmented = transform(image=img_np, mask=mask_np)
+            aug_img = to_display_image(augmented["image"])
 
             plt.sca(axes[i + 1])
-            plot_sample(aug_img, title=f"{augmentation_type} {i + 1}")
+            plot_sample(aug_img, title=f"augmentation={augmentation} {i + 1}")
 
         plt.tight_layout()
         plt.show()

@@ -10,8 +10,6 @@ import torch
 from torch.utils.data import DataLoader
 import cv2
 import segmentation_models_pytorch as smp
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
 from tqdm import tqdm
 
 from config import DEFAULT_CONFIG_PATH, get_config_value, load_config, resolve_model_path
@@ -27,6 +25,7 @@ from inria_split import (
 )
 from models import build_model
 from postprocess import postprocess_mask
+from transforms import get_train_transform, get_val_transform
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -35,7 +34,7 @@ CSV_HEADER = [
     "run_name",
     "architecture",
     "encoder",
-    "augmentation_type",
+    "augmentation",
     "protocol",
     "train_image_ids",
     "val_image_ids",
@@ -74,8 +73,6 @@ CSV_HEADER = [
     "notes",
 ]
 
-IMAGENET_MEAN = (0.485, 0.456, 0.406)
-IMAGENET_STD = (0.229, 0.224, 0.225)
 THRESHOLD_VALUES = tuple(round(float(t), 2) for t in np.arange(0.30, 0.801, 0.01))
 
 
@@ -93,10 +90,9 @@ def parse_args():
     parser.add_argument("--lr", type=float, default=None)
 
     parser.add_argument(
-        "--augmentation_type",
-        type=str,
+        "--augmentation",
+        type=parse_bool,
         default=None,
-        choices=["noaug", "geomaug", "mildaug", "strongaug"],
     )
 
     parser.add_argument("--seed", type=int, default=None)
@@ -123,6 +119,23 @@ def select_value(cli_value, config, *keys, default=None):
     if cli_value is not None:
         return cli_value
     return get_config_value(config, *keys, default=default)
+
+
+def parse_bool(value):
+    if isinstance(value, bool):
+        return value
+
+    normalized = str(value).strip().lower()
+
+    if normalized in ("true", "1", "yes", "y"):
+        return True
+
+    if normalized in ("false", "0", "no", "n"):
+        return False
+
+    raise argparse.ArgumentTypeError(
+        f"Expected a boolean true/false value, got: {value}"
+    )
 
 
 def format_duration(seconds):
@@ -173,103 +186,6 @@ def count_values_above_thresholds(values, thresholds):
         torch.cumsum(torch.flip(counts_by_bucket[1:], dims=[0]), dim=0),
         dims=[0],
     )
-
-
-def finish_transform():
-    return [
-        A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
-        ToTensorV2(),
-    ]
-
-
-def get_train_transform(augmentation_type):
-    if augmentation_type == "noaug":
-        return A.Compose([
-            *finish_transform(),
-        ])
-
-    if augmentation_type == "geomaug":
-        return A.Compose([
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.5),
-            A.RandomRotate90(p=0.5),
-            A.Transpose(p=0.25),
-            *finish_transform(),
-        ])
-
-    if augmentation_type == "mildaug":
-        return A.Compose([
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.5),
-            A.RandomRotate90(p=0.5),
-            A.Transpose(p=0.25),
-
-            A.RandomBrightnessContrast(
-                brightness_limit=0.10,
-                contrast_limit=0.10,
-                p=0.30,
-            ),
-
-            A.HueSaturationValue(
-                hue_shift_limit=3,
-                sat_shift_limit=8,
-                val_shift_limit=5,
-                p=0.20,
-            ),
-
-            *finish_transform(),
-        ])
-
-    if augmentation_type == "strongaug":
-        return A.Compose([
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.5),
-            A.RandomRotate90(p=0.5),
-            A.Transpose(p=0.25),
-
-            A.Affine(
-                translate_percent=(-0.05, 0.05),
-                scale=(0.90, 1.10),
-                rotate=(-10, 10),
-                interpolation=cv2.INTER_LINEAR,
-                mask_interpolation=cv2.INTER_NEAREST,
-                border_mode=cv2.BORDER_REFLECT_101,
-                p=0.35,
-            ),
-
-            A.RandomBrightnessContrast(
-                brightness_limit=0.15,
-                contrast_limit=0.15,
-                p=0.40,
-            ),
-
-            A.HueSaturationValue(
-                hue_shift_limit=5,
-                sat_shift_limit=12,
-                val_shift_limit=8,
-                p=0.30,
-            ),
-
-            A.GaussNoise(
-                std_range=(0.02, 0.08),
-                p=0.15,
-            ),
-
-            A.MotionBlur(
-                blur_limit=3,
-                p=0.10,
-            ),
-
-            *finish_transform(),
-        ])
-
-    raise ValueError(f"Unsupported augmentation_type: {augmentation_type}")
-
-
-def get_val_transform():
-    return A.Compose([
-        *finish_transform(),
-    ])
 
 
 def evaluate(model, loader, loss_fn, threshold_values=THRESHOLD_VALUES, desc="Val"):
@@ -477,7 +393,7 @@ def log_experiment(
     run_name,
     architecture,
     encoder,
-    augmentation_type,
+    augmentation,
     protocol,
     train_image_ids,
     val_image_ids,
@@ -523,7 +439,7 @@ def log_experiment(
             run_name,
             architecture,
             encoder,
-            augmentation_type,
+            str(augmentation).lower(),
             protocol,
             describe_image_ids(train_image_ids),
             describe_image_ids(val_image_ids),
@@ -591,13 +507,13 @@ def main():
     batch_size = select_value(args.batch_size, config, "training", "batch_size", default=8)
     epochs = select_value(args.epochs, config, "training", "epochs", default=10)
     lr = select_value(args.lr, config, "training", "lr", default=1e-4)
-    augmentation_type = select_value(
-        args.augmentation_type,
+    augmentation = parse_bool(select_value(
+        args.augmentation,
         config,
         "training",
-        "augmentation_type",
-        default="noaug",
-    )
+        "augmentation",
+        default=False,
+    ))
     seed = select_value(args.seed, config, "training", "seed", default=42)
 
     train_image_dir = select_value(
@@ -726,7 +642,7 @@ def main():
     print("Experiment:", run_name)
     print("Architecture:", architecture)
     print("Encoder:", encoder)
-    print("Augmentation type:", augmentation_type)
+    print("Augmentation:", augmentation)
     print("Train images:", train_image_dir)
     print("Validation images:", val_image_dir)
     print("INRIA protocol:", "public_155_internal_val")
@@ -746,7 +662,7 @@ def main():
     train_dataset = BuildingDataset(
         train_image_dir,
         train_mask_dir,
-        transform=get_train_transform(augmentation_type),
+        transform=get_train_transform(augmentation),
     )
 
     val_dataset = BuildingDataset(
@@ -976,7 +892,7 @@ def main():
         run_name=run_name,
         architecture=architecture,
         encoder=encoder,
-        augmentation_type=augmentation_type,
+        augmentation=augmentation,
         protocol="inria155_public_holdout_internal_val",
         train_image_ids=train_image_ids,
         val_image_ids=val_image_ids,

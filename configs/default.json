@@ -29,7 +29,7 @@
     "batch_size": 8,
     "epochs": 10,
     "lr": 0.0001,
-    "augmentation_type": "noaug",
+    "augmentation": false,
     "seed": 42,
     "experiment_log_path": "results/experiments_inria155.csv"
   },
@@ -50,7 +50,7 @@
     "experiments_csv": "results/experiments_phase2_augmentation.csv",
     "prediction_out_dir": "outputs/predictions",
     "comparison_out_dir": "outputs/model_comparisons",
-    "augmentation_type": "mildaug",
+    "augmentation": true,
     "num_samples": 4,
     "num_augs": 4,
     "num_prediction_grids": 1,

@@ -2,7 +2,7 @@
 
 Semantic segmentation pipeline for extracting building footprints from aerial imagery and preparing the predictions for GIS-style vector outputs.
 
-This repository is a work in progress. The current version focuses on the core computer vision workflow: preparing image tiles, training segmentation models, comparing validation performance, running tiled inference over larger images, cleaning predicted masks, and drawing polygon overlays. The next phase will focus on testing augmentation strategies with the three best-performing models and improving the vectorization / polygonization step so the output is more useful in GIS workflows.
+This repository is a work in progress. The current version focuses on the core computer vision workflow: preparing image tiles, training segmentation models, comparing validation performance, running tiled inference over larger images, cleaning predicted masks, and drawing polygon overlays. The next phase will focus on testing the standard geometric augmentation recipe with the three best-performing models and improving the vectorization / polygonization step so the output is more useful in GIS workflows.
 
 ## Motivation
 
@@ -110,7 +110,7 @@ These results should be read as an initial baseline rather than a final benchmar
 results/experiments_phase2_augmentation.csv
 ```
 
-In the next phase, I plan to rerun the strongest models with geometric, mild color, and stronger augmentation settings to test whether the models generalize better.
+In the next phase, I plan to rerun the strongest models with the standard geometric augmentation setting to test whether the models generalize better.
 
 ## Repository Structure
 
@@ -216,12 +216,12 @@ For example, this uses the default config:
 python src/train.py
 ```
 
-This uses the default config but overrides the run name and augmentation type:
+This uses the default config but overrides the run name and augmentation flag:
 
 ```bash
 python src/train.py \
-  --run_name unet_effb3_256_geomaug_e10 \
-  --augmentation_type geomaug
+  --run_name unet_effb3_256_aug_e10 \
+  --augmentation true
 ```
 
 To use another config file:
@@ -255,7 +255,7 @@ python src/train.py \
   --batch_size 8 \
   --epochs 10 \
   --lr 0.0001 \
-  --augmentation_type noaug
+  --augmentation false
 ```
 
 Run a batch of experiments from a YAML file:
@@ -325,7 +325,7 @@ python scripts/predict_full_image.py \
 
 ## Next Phases
 
-1. Run augmentation experiments with the three best-performing baseline models.
+1. Run standard geometric augmentation experiments with the three best-performing baseline models.
 2. Improve validation reporting with plots, qualitative examples, and clearer comparison tables.
 3. Improve vectorization / polygonization, including cleaner polygon boundaries and geospatial export.
 4. Add smoke tests for config loading, tiling, post-processing, and vector export.

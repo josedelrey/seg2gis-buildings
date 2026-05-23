@@ -1,4 +1,4 @@
-description: Phase 2a augmentation search using U-Net + EfficientNet-B3.
+description: Phase 2a boolean augmentation comparison using U-Net + EfficientNet-B3.
 
 defaults:
   batch_size: 8
@@ -11,19 +11,9 @@ experiments:
   - run_name: unet_effb3_256_noaug_e30
     architecture: unet
     encoder: efficientnet-b3
-    augmentation_type: noaug
+    augmentation: false
 
-  # - run_name: unet_effb3_256_geomaug_e30
-  #   architecture: unet
-  #   encoder: efficientnet-b3
-  #   augmentation_type: geomaug
-
-  # - run_name: unet_effb3_256_mildaug_e30
-  #   architecture: unet
-  #   encoder: efficientnet-b3
-  #   augmentation_type: mildaug
-
-  # - run_name: unet_effb3_256_strongaug_e30
-  #   architecture: unet
-  #   encoder: efficientnet-b3
-  #   augmentation_type: strongaug
+  - run_name: unet_effb3_256_aug_e30
+    architecture: unet
+    encoder: efficientnet-b3
+    augmentation: true

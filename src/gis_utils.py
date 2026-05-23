@@ -4,14 +4,10 @@ import os
 import cv2
 import numpy as np
 import torch
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
 from tqdm import tqdm
 
 from models import build_model
-
-IMAGENET_MEAN = (0.485, 0.456, 0.406)
-IMAGENET_STD = (0.229, 0.224, 0.225)
+from transforms import IMAGENET_MEAN, IMAGENET_STD, get_inference_transform
 
 
 def load_model(model_path, architecture, encoder, device):
@@ -22,13 +18,6 @@ def load_model(model_path, architecture, encoder, device):
 
     model.eval()
     return model
-
-
-def get_inference_transform():
-    return A.Compose([
-        A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
-        ToTensorV2(),
-    ])
 
 
 def load_rgb_image(image_path):
