@@ -13,13 +13,13 @@ import segmentation_models_pytorch as smp
 from tqdm import tqdm
 
 from config import DEFAULT_CONFIG_PATH, get_config_value, load_config, resolve_model_path
-from dataset import BuildingDataset
-from gis_utils import load_rgb_image, predict_full_image_tiled
-from inria_split import (
+from dataset import (
+    BuildingDataset,
     collect_image_mask_pairs,
     describe_image_ids,
     image_id_list,
 )
+from gis_utils import load_rgb_image, predict_full_image_tiled
 from models import build_model
 from postprocess import postprocess_mask
 from transforms import get_train_transform, get_val_transform

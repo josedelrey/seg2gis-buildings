@@ -10,10 +10,7 @@ from tqdm import tqdm
 sys.path.append(os.path.abspath("src"))
 
 from config import DEFAULT_CONFIG_PATH, get_config_value, load_config
-from inria_split import (
-    INRIA_TEST_IMAGE_IDS,
-    INRIA_TRAIN_IMAGE_IDS,
-    INRIA_VAL_IMAGE_IDS,
+from dataset import (
     collect_image_mask_pairs,
     describe_image_ids,
     image_id_list,
@@ -48,6 +45,13 @@ def select_value(cli_value, config, *keys, default=None):
     if cli_value is not None:
         return cli_value
     return get_config_value(config, *keys, default=default)
+
+
+def require_value(value, key_name):
+    if value is None:
+        raise ValueError(f"Missing required config value: {key_name}")
+
+    return value
 
 
 def make_dirs(out_dir):
@@ -193,7 +197,6 @@ def main():
         config,
         "protocol",
         "name",
-        default="inria155_public_holdout_internal_val",
     )
     tile_size = select_value(args.tile_size, config, "tiling", "tile_size", default=256)
     stride = select_value(args.stride, config, "tiling", "stride", default=256)
@@ -202,22 +205,24 @@ def main():
         config,
         "protocol",
         "train_image_ids",
-        default=INRIA_TRAIN_IMAGE_IDS,
     ))
     val_image_ids = image_id_list(select_value(
         args.val_image_ids,
         config,
         "protocol",
         "val_image_ids",
-        default=INRIA_VAL_IMAGE_IDS,
     ))
     test_image_ids = image_id_list(select_value(
         args.test_image_ids,
         config,
         "protocol",
         "test_image_ids",
-        default=INRIA_TEST_IMAGE_IDS,
     ))
+
+    protocol = require_value(protocol, "protocol.name")
+    train_image_ids = require_value(train_image_ids, "protocol.train_image_ids")
+    val_image_ids = require_value(val_image_ids, "protocol.val_image_ids")
+    test_image_ids = require_value(test_image_ids, "protocol.test_image_ids")
 
     if image_dir is None:
         raise ValueError("No raw training image directory provided. Set data.raw_train_image_dir or pass --image_dir.")

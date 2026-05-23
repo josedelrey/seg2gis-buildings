@@ -1,10 +1,85 @@
 import os
+import re
 from glob import glob
 
 import cv2
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+
+
+INRIA_PUBLIC_CITIES = ("austin", "chicago", "kitsap", "tyrol-w", "vienna")
+_IMAGE_NAME_RE = re.compile(r"^(?P<city>.+?)(?P<image_id>\d+)$")
+
+
+def parse_inria_name(path):
+    stem = os.path.splitext(os.path.basename(path))[0]
+    match = _IMAGE_NAME_RE.match(stem)
+
+    if match is None:
+        raise ValueError(f"Could not parse INRIA image name: {path}")
+
+    city = match.group("city").lower()
+    image_id = int(match.group("image_id"))
+
+    return city, image_id
+
+
+def image_id_list(values):
+    if values is None:
+        return None
+
+    if isinstance(values, str):
+        return [int(item.strip()) for item in values.split(",") if item.strip()]
+
+    return [int(item) for item in values]
+
+
+def describe_image_ids(values):
+    values = image_id_list(values)
+    if values is None:
+        return ""
+
+    return ",".join(str(item) for item in values)
+
+
+def collect_image_mask_pairs(image_dir, mask_dir, image_ids, cities=None):
+    image_ids = set(image_id_list(image_ids))
+    cities = set(city.lower() for city in (cities or INRIA_PUBLIC_CITIES))
+
+    images_by_stem = {
+        os.path.splitext(os.path.basename(path))[0]: path
+        for path in glob(os.path.join(image_dir, "*.tif"))
+    }
+    masks_by_stem = {
+        os.path.splitext(os.path.basename(path))[0]: path
+        for path in glob(os.path.join(mask_dir, "*.tif"))
+    }
+
+    pairs = []
+
+    for stem, image_path in sorted(images_by_stem.items()):
+        city, image_id = parse_inria_name(stem)
+
+        if city not in cities or image_id not in image_ids:
+            continue
+
+        mask_path = masks_by_stem.get(stem)
+
+        if mask_path is None:
+            raise RuntimeError(f"Missing mask for image: {image_path}")
+
+        pairs.append((image_path, mask_path))
+
+    expected = len(cities) * len(image_ids)
+
+    if len(pairs) != expected:
+        raise RuntimeError(
+            f"Expected {expected} INRIA image/mask pairs for cities "
+            f"{sorted(cities)} and image ids {sorted(image_ids)}, found {len(pairs)}."
+        )
+
+    return pairs
 
 
 class BuildingDataset(Dataset):
