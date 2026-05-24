@@ -9,7 +9,11 @@ from tqdm import tqdm
 from config import DEFAULT_CONFIG_PATH, get_config_value, load_config, resolve_model_path
 from dataset import collect_image_mask_pairs, describe_image_ids, image_id_list
 from gis_utils import load_model, load_rgb_image, predict_full_image_tiled
-from metrics import confusion_from_masks, metrics_from_confusion
+from metrics import (
+    boundary_metrics_multi,
+    confusion_from_masks,
+    metrics_from_confusion,
+)
 from postprocess import postprocess_mask
 
 
@@ -36,6 +40,14 @@ CSV_HEADER = [
     "precision",
     "recall",
     "accuracy",
+    "boundary_f1_2px",
+    "boundary_iou_2px",
+    "boundary_precision_2px",
+    "boundary_recall_2px",
+    "boundary_f1_5px",
+    "boundary_iou_5px",
+    "boundary_precision_5px",
+    "boundary_recall_5px",
     "tp",
     "fp",
     "fn",
@@ -77,6 +89,16 @@ def evaluate_full_images(
     total_fp = 0
     total_fn = 0
     total_tn = 0
+    boundary_metric_sums = {
+        "boundary_f1_2px": 0.0,
+        "boundary_iou_2px": 0.0,
+        "boundary_precision_2px": 0.0,
+        "boundary_recall_2px": 0.0,
+        "boundary_f1_5px": 0.0,
+        "boundary_iou_5px": 0.0,
+        "boundary_precision_5px": 0.0,
+        "boundary_recall_5px": 0.0,
+    }
 
     model.eval()
 
@@ -115,9 +137,23 @@ def evaluate_full_images(
         total_fn += fn
         total_tn += tn
 
+        image_boundary_metrics = boundary_metrics_multi(
+            pred_mask,
+            target_mask,
+            tolerances=(2, 5),
+        )
+        for key, value in image_boundary_metrics.items():
+            boundary_metric_sums[key] += value
+
     metrics = metrics_from_confusion(total_tp, total_fp, total_fn, total_tn)
     metrics["n_images"] = len(pairs)
     metrics["threshold"] = float(threshold)
+
+    # Keep standard metrics pixel-aggregated, but average boundary metrics per
+    # image so large or building-dense images do not dominate boundary quality.
+    n_images = len(pairs)
+    for key, value in boundary_metric_sums.items():
+        metrics[key] = float(value / n_images)
 
     return metrics
 
@@ -152,7 +188,9 @@ def log_evaluation(
             raise ValueError(
                 f"CSV header mismatch in {log_path}.\n"
                 f"Expected: {CSV_HEADER}\n"
-                f"Found:    {existing_header}"
+                f"Found:    {existing_header}\n"
+                "Delete or rename the old results CSV because the evaluation "
+                "schema changed."
             )
 
     with open(log_path, "a", newline="") as f:
@@ -179,6 +217,14 @@ def log_evaluation(
             round(metrics["precision"], 4),
             round(metrics["recall"], 4),
             round(metrics["accuracy"], 4),
+            round(metrics["boundary_f1_2px"], 4),
+            round(metrics["boundary_iou_2px"], 4),
+            round(metrics["boundary_precision_2px"], 4),
+            round(metrics["boundary_recall_2px"], 4),
+            round(metrics["boundary_f1_5px"], 4),
+            round(metrics["boundary_iou_5px"], 4),
+            round(metrics["boundary_precision_5px"], 4),
+            round(metrics["boundary_recall_5px"], 4),
             metrics["tp"],
             metrics["fp"],
             metrics["fn"],
@@ -273,6 +319,10 @@ def main():
         f"Precision: {metrics['precision']:.4f} | "
         f"Recall: {metrics['recall']:.4f} | "
         f"Accuracy: {metrics['accuracy']:.4f} | "
+        f"Boundary F1 @2px: {metrics['boundary_f1_2px']:.4f} | "
+        f"Boundary IoU @2px: {metrics['boundary_iou_2px']:.4f} | "
+        f"Boundary F1 @5px: {metrics['boundary_f1_5px']:.4f} | "
+        f"Boundary IoU @5px: {metrics['boundary_iou_5px']:.4f} | "
         f"TP: {metrics['tp']} | "
         f"FP: {metrics['fp']} | "
         f"FN: {metrics['fn']} | "
