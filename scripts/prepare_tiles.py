@@ -1,7 +1,9 @@
 import argparse
 import os
+import shutil
 import sys
 from glob import glob
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -54,12 +56,32 @@ def require_value(value, key_name):
     return value
 
 
-def make_dirs(out_dir):
-    for split in ["train", "val", "test"]:
-        os.makedirs(os.path.join(out_dir, split, "images"), exist_ok=True)
-        os.makedirs(os.path.join(out_dir, split, "masks"), exist_ok=True)
+def reset_output_dir(out_dir):
+    if out_dir is None:
+        raise ValueError("Tile output directory cannot be None.")
 
-    os.makedirs(os.path.join(out_dir, "public_test", "images"), exist_ok=True)
+    if not str(out_dir).strip() or str(out_dir).strip() == ".":
+        raise ValueError("Unsafe tile output directory. Refusing to delete it.")
+
+    output_path = Path(out_dir).resolve()
+    repo_root = Path(__file__).resolve().parents[1]
+    filesystem_root = Path(output_path.anchor).resolve()
+
+    if output_path == repo_root:
+        raise ValueError("Unsafe tile output directory: cannot delete repository root.")
+
+    if output_path == filesystem_root:
+        raise ValueError("Unsafe tile output directory: cannot delete filesystem root.")
+
+    if output_path.exists():
+        print(f"Removing existing tile output directory: {output_path}")
+        shutil.rmtree(output_path)
+
+    for split in ["train", "val", "test"]:
+        (output_path / split / "images").mkdir(parents=True, exist_ok=True)
+        (output_path / split / "masks").mkdir(parents=True, exist_ok=True)
+
+    (output_path / "public_test" / "images").mkdir(parents=True, exist_ok=True)
 
 
 def get_test_files(test_image_dir):
@@ -244,7 +266,7 @@ def main():
     print("Validation image ids:", describe_image_ids(val_image_ids))
     print("Test image ids:", describe_image_ids(test_image_ids))
 
-    make_dirs(out_dir)
+    reset_output_dir(out_dir)
     process_labeled_split(
         "train",
         collect_image_mask_pairs(image_dir, mask_dir, train_image_ids),
