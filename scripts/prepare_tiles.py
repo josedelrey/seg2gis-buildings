@@ -19,6 +19,9 @@ from dataset import (
 )
 
 
+OFFICIAL_UNLABELED_TEST_SPLIT = "inria_official_test_unlabeled"
+
+
 # Suppress OpenCV GeoTIFF metadata warnings.
 try:
     cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
@@ -81,7 +84,10 @@ def reset_output_dir(out_dir):
         (output_path / split / "images").mkdir(parents=True, exist_ok=True)
         (output_path / split / "masks").mkdir(parents=True, exist_ok=True)
 
-    (output_path / "public_test" / "images").mkdir(parents=True, exist_ok=True)
+    (output_path / OFFICIAL_UNLABELED_TEST_SPLIT / "images").mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
 
 def get_test_files(test_image_dir):
@@ -165,30 +171,41 @@ def process_labeled_split(split, pairs, out_dir, tile_size, stride):
         print(f"{split} done. Saved {total_tiles} tiles.")
 
 
-def process_public_unlabeled_test(test_image_dir, out_dir, tile_size, stride):
-    test_images = get_test_files(test_image_dir)
+def process_inria_official_test_unlabeled(test_image_dir, out_dir, tile_size, stride):
+    official_test_images = get_test_files(test_image_dir)
 
-    print("Processing test set...")
+    print("Processing INRIA official unlabeled test set...")
 
     total_tiles = 0
 
-    for img_path in tqdm(test_images, desc="test", unit="img"):
+    for img_path in tqdm(
+        official_test_images,
+        desc=OFFICIAL_UNLABELED_TEST_SPLIT,
+        unit="img",
+    ):
         img = cv2.imread(img_path)
 
         if img is None:
-            raise RuntimeError(f"Could not read test image: {img_path}")
+            raise RuntimeError(
+                f"Could not read INRIA official unlabeled test image: {img_path}"
+            )
 
         base_name = os.path.splitext(os.path.basename(img_path))[0]
         tiles = tile_image_only(img, tile_size, stride)
 
         for tile_img, y, x in tiles:
             name = f"{base_name}_y{y:04d}_x{x:04d}.png"
-            out_img_path = os.path.join(out_dir, "public_test", "images", name)
+            out_img_path = os.path.join(
+                out_dir,
+                OFFICIAL_UNLABELED_TEST_SPLIT,
+                "images",
+                name,
+            )
             cv2.imwrite(out_img_path, tile_img)
 
         total_tiles += len(tiles)
 
-    print(f"test done. Saved {total_tiles} tiles.")
+    print(f"INRIA official unlabeled test done. Saved {total_tiles} tiles.")
 
 
 def main():
@@ -257,7 +274,7 @@ def main():
 
     print("Image dir:", image_dir)
     print("Mask dir:", mask_dir)
-    print("Public unlabeled test image dir:", test_image_dir)
+    print("INRIA official unlabeled test image dir:", test_image_dir)
     print("Output dir:", out_dir)
     print("Tile size:", tile_size)
     print("Stride:", stride)
@@ -290,7 +307,12 @@ def main():
     )
 
     if test_image_dir is not None:
-        process_public_unlabeled_test(test_image_dir, out_dir, tile_size, stride)
+        process_inria_official_test_unlabeled(
+            test_image_dir,
+            out_dir,
+            tile_size,
+            stride,
+        )
 
     print("All tiling completed.")
 
