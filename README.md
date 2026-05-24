@@ -119,7 +119,7 @@ src/
   config.py         Small JSON config loader used by scripts
   dataset.py        Dataset wrapper for image / mask tiles
   train.py          Training, validation, threshold tuning, experiment logging
-  evaluate.py       Final held-out full-image evaluation
+  evaluate.py       Full-image validation/test evaluation
   metrics.py        Reusable confusion-matrix metric helpers
   gis_utils.py      Model loading and tiled full-image inference helpers
   postprocess.py    Binary mask cleanup utilities
@@ -240,10 +240,16 @@ Train a model:
 python src/train.py --config configs/default.json
 ```
 
-Run final held-out full-image evaluation:
+Run full-image validation evaluation for model selection and ablations:
 
 ```bash
-python src/evaluate.py
+python src/evaluate.py --config configs/default.json --split val
+```
+
+Run final held-out full-image test evaluation:
+
+```bash
+python src/evaluate.py --config configs/default.json --split test
 ```
 
 Run a batch of experiments from a YAML file:

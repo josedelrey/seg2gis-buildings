@@ -1,8 +1,8 @@
 {
   "data": {
-    "raw_train_image_dir": "data/AerialImageDataset/train/images",
-    "raw_train_mask_dir": "data/AerialImageDataset/train/gt",
-    "raw_test_image_dir": "data/AerialImageDataset/test/images",
+    "raw_train_image_dir": "data/INRIA/train/images",
+    "raw_train_mask_dir": "data/INRIA/train/gt",
+    "raw_test_image_dir": "data/INRIA/test/images",
     "tile_dir": "data/tiles_256_inria155",
     "train_image_dir": "data/tiles_256_inria155/train/images",
     "train_mask_dir": "data/tiles_256_inria155/train/masks",
@@ -36,8 +36,6 @@
     "experiment_log_path": "results/experiments_inria155.csv"
   },
   "evaluation": {
-    "raw_test_image_dir": "data/AerialImageDataset/train/images",
-    "raw_test_mask_dir": "data/AerialImageDataset/train/gt",
     "threshold": 0.5,
     "tile_size": 256,
     "stride": 128,

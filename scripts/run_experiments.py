@@ -30,8 +30,6 @@ EXPERIMENT_FIELD_PATHS = {
     "train_mask_dir": ("data", "train_mask_dir"),
     "val_image_dir": ("data", "val_image_dir"),
     "val_mask_dir": ("data", "val_mask_dir"),
-    "raw_test_image_dir": ("evaluation", "raw_test_image_dir"),
-    "raw_test_mask_dir": ("evaluation", "raw_test_mask_dir"),
     "train_image_ids": ("protocol", "train_image_ids"),
     "val_image_ids": ("protocol", "val_image_ids"),
     "test_image_ids": ("protocol", "test_image_ids"),
