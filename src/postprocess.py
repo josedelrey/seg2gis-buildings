@@ -63,21 +63,24 @@ def postprocess_mask(
     Returns:
         cleaned uint8 mask with values 0/1.
     """
-    cleaned = mask.astype(np.uint8)
+    cleaned = (mask.astype(np.uint8) > 0).astype(np.uint8)
 
-    cleaned = remove_small_components(
-        cleaned,
-        min_area=min_area,
-    )
+    if min_area is not None and min_area > 0:
+        cleaned = remove_small_components(
+            cleaned,
+            min_area=min_area,
+        )
 
-    cleaned = morphological_open(
-        cleaned,
-        kernel_size=open_kernel_size,
-    )
+    if open_kernel_size is not None and open_kernel_size > 0:
+        cleaned = morphological_open(
+            cleaned,
+            kernel_size=open_kernel_size,
+        )
 
-    cleaned = remove_small_components(
-        cleaned,
-        min_area=min_area,
-    )
+    if min_area is not None and min_area > 0:
+        cleaned = remove_small_components(
+            cleaned,
+            min_area=min_area,
+        )
 
-    return cleaned.astype(np.uint8)
+    return (cleaned > 0).astype(np.uint8)
