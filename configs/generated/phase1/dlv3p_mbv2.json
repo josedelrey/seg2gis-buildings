@@ -61,18 +61,18 @@
     "stride": 256
   },
   "model": {
-    "architecture": "unet",
-    "encoder": "efficientnet-b3",
-    "model_dir": "models"
+    "architecture": "deeplabv3plus",
+    "encoder": "mobilenet_v2",
+    "model_dir": "models/phase1"
   },
   "training": {
-    "run_name": "unet_effb3_256_noaug_e30",
+    "run_name": "dlv3p_mbv2",
     "batch_size": 8,
-    "epochs": 30,
+    "epochs": 10,
     "lr": 0.0001,
     "augmentation": false,
     "seed": 42,
-    "experiment_log_path": "results/experiments_inria155_phase2_augmentation.csv"
+    "experiment_log_path": "results/experiments_inria155.csv"
   },
   "evaluation": {
     "threshold": 0.5,

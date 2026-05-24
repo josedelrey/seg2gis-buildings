@@ -10,7 +10,6 @@ from datetime import datetime, timedelta
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-import segmentation_models_pytorch as smp
 from tqdm import tqdm
 
 from config import (
@@ -25,6 +24,7 @@ from dataset import (
     describe_image_ids,
     image_id_list,
 )
+from losses import build_loss_fn, describe_loss
 from models import build_model
 from transforms import get_train_transform, get_val_transform
 
@@ -36,6 +36,7 @@ CSV_HEADER = [
     "architecture",
     "encoder",
     "augmentation",
+    "loss",
     "protocol",
     "train_image_ids",
     "val_image_ids",
@@ -399,6 +400,7 @@ def log_experiment(
     architecture,
     encoder,
     augmentation,
+    loss_name,
     protocol,
     train_image_ids,
     val_image_ids,
@@ -441,6 +443,7 @@ def log_experiment(
             architecture,
             encoder,
             str(augmentation).lower(),
+            loss_name,
             protocol,
             describe_image_ids(train_image_ids),
             describe_image_ids(val_image_ids),
@@ -503,6 +506,9 @@ def main():
     test_image_ids = image_id_list(require_config_value(config, "protocol", "test_image_ids"))
     model_dir = require_config_value(config, "model", "model_dir")
     log_path = require_config_value(config, "training", "experiment_log_path")
+    loss_config = get_config_value(config, "loss", default={})
+    loss_fn = build_loss_fn(loss_config)
+    loss_name = describe_loss(loss_config)
 
     model_path = resolve_model_path(model_dir, run_name)
     metadata_path = resolve_model_metadata_path(model_dir, run_name)
@@ -516,6 +522,7 @@ def main():
     print("Architecture:", architecture)
     print("Encoder:", encoder)
     print("Augmentation:", augmentation)
+    print("Loss:", loss_name)
     print("Train images:", train_image_dir)
     print("Validation images:", val_image_dir)
     print("INRIA protocol:", protocol)
@@ -560,19 +567,12 @@ def main():
     encoder_weights = "imagenet"
     optimizer_weight_decay = 1e-4
     scheduler_eta_min = 1e-6
-    loss_name = "DiceLoss + BCEWithLogitsLoss"
 
     model = build_model(
         architecture,
         encoder,
         encoder_weights=encoder_weights,
     ).to(DEVICE)
-
-    dice_loss = smp.losses.DiceLoss(mode="binary")
-    bce_loss = torch.nn.BCEWithLogitsLoss()
-
-    def loss_fn(logits, masks):
-        return dice_loss(logits, masks) + bce_loss(logits, masks)
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -809,6 +809,7 @@ def main():
         architecture=architecture,
         encoder=encoder,
         augmentation=augmentation,
+        loss_name=loss_name,
         protocol=protocol,
         train_image_ids=train_image_ids,
         val_image_ids=val_image_ids,

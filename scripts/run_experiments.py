@@ -10,7 +10,7 @@ from pathlib import Path
 import yaml
 
 
-DEFAULT_EXPERIMENT_CONFIG = "configs/experiments_phase2_augmentation.yaml"
+DEFAULT_EXPERIMENT_CONFIG = "configs/experiments_class_showcase_aug.yaml"
 DEFAULT_PROJECT_CONFIG = "configs/default.json"
 
 REQUIRED_EXPERIMENT_FIELDS = ("run_name", "architecture", "encoder", "augmentation")
@@ -39,6 +39,11 @@ EXPERIMENT_FIELD_PATHS = {
     "eval_open_kernel_size": ("evaluation", "open_kernel_size"),
     "model_dir": ("model", "model_dir"),
     "experiment_log_path": ("training", "experiment_log_path"),
+    "loss_name": ("loss", "name"),
+    "loss_dice_weight": ("loss", "dice_weight"),
+    "loss_bce_weight": ("loss", "bce_weight"),
+    "loss_boundary_weight": ("loss", "boundary_weight"),
+    "loss_boundary_width": ("loss", "boundary_width"),
 }
 
 

@@ -13,27 +13,66 @@
   },
   "protocol": {
     "name": "inria155_public_holdout_internal_val",
-    "train_image_ids": [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36],
-    "val_image_ids": [6, 7, 8, 9, 10],
-    "test_image_ids": [1, 2, 3, 4, 5]
+    "train_image_ids": [
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36
+    ],
+    "val_image_ids": [
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "test_image_ids": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
   },
   "tiling": {
     "tile_size": 256,
     "stride": 256
   },
   "model": {
-    "architecture": "unet",
+    "architecture": "fpn",
     "encoder": "efficientnet-b3",
-    "model_dir": "models"
+    "model_dir": "models/class_showcase_loss"
   },
   "training": {
-    "run_name": "unet_effb3_256_noaug_e10",
+    "run_name": "p3_fpn_effb3_256_aug_dice_bce_e50",
     "batch_size": 8,
-    "epochs": 10,
+    "epochs": 50,
     "lr": 0.0001,
-    "augmentation": false,
+    "augmentation": true,
     "seed": 42,
-    "experiment_log_path": "results/experiments_inria155.csv"
+    "experiment_log_path": "results/class_showcase_loss_training.csv"
   },
   "loss": {
     "name": "dice_bce",
