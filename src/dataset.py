@@ -1,6 +1,7 @@
 import os
 import re
 from glob import glob
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -98,6 +99,25 @@ class BuildingDataset(Dataset):
             raise RuntimeError(
                 f"Image/mask count mismatch: "
                 f"{len(self.image_paths)} images vs {len(self.mask_paths)} masks"
+            )
+
+        image_stems = [Path(path).stem for path in self.image_paths]
+        mask_stems = [Path(path).stem for path in self.mask_paths]
+
+        if image_stems != mask_stems:
+            mismatches = [
+                (image_stem, mask_stem)
+                for image_stem, mask_stem in zip(image_stems, mask_stems)
+                if image_stem != mask_stem
+            ]
+            example_mismatches = mismatches[:5]
+
+            raise RuntimeError(
+                "Image/mask tile basename mismatch. "
+                f"Image dir: {image_dir}. "
+                f"Mask dir: {mask_dir}. "
+                f"First mismatches: {example_mismatches}. "
+                "Regenerate tiles from a clean output directory."
             )
 
     def __len__(self):
