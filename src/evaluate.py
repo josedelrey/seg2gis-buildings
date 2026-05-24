@@ -7,7 +7,13 @@ import torch
 from tqdm import tqdm
 
 from config import DEFAULT_CONFIG_PATH, get_config_value, load_config, resolve_model_path
-from dataset import collect_image_mask_pairs, describe_image_ids, image_id_list
+from dataset import (
+    INRIA_PUBLIC_CITIES,
+    collect_image_mask_pairs,
+    describe_image_ids,
+    image_id_list,
+    parse_inria_name,
+)
 from gis_utils import load_model, load_rgb_image, predict_full_image_tiled
 from metrics import (
     boundary_metrics_multi,
@@ -28,6 +34,7 @@ CSV_HEADER = [
     "encoder",
     "protocol",
     "split",
+    "city",
     "image_ids",
     "n_images",
     "threshold",
@@ -72,6 +79,67 @@ def require_config_value(config, *keys):
     return value
 
 
+def new_metric_accumulator():
+    return {
+        "n_images": 0,
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "tn": 0,
+        "boundary_metric_sums": {
+            "boundary_f1_2px": 0.0,
+            "boundary_iou_2px": 0.0,
+            "boundary_precision_2px": 0.0,
+            "boundary_recall_2px": 0.0,
+            "boundary_f1_5px": 0.0,
+            "boundary_iou_5px": 0.0,
+            "boundary_precision_5px": 0.0,
+            "boundary_recall_5px": 0.0,
+        },
+    }
+
+
+def update_accumulator(accumulator, pred_mask, target_mask):
+    tp, fp, fn, tn = confusion_from_masks(pred_mask, target_mask)
+    accumulator["tp"] += tp
+    accumulator["fp"] += fp
+    accumulator["fn"] += fn
+    accumulator["tn"] += tn
+
+    image_boundary_metrics = boundary_metrics_multi(
+        pred_mask,
+        target_mask,
+        tolerances=(2, 5),
+    )
+    for key, value in image_boundary_metrics.items():
+        accumulator["boundary_metric_sums"][key] += value
+
+    accumulator["n_images"] += 1
+
+
+def finalize_accumulator(accumulator, group_name):
+    n_images = accumulator["n_images"]
+    if n_images == 0:
+        raise RuntimeError(
+            f"Cannot finalize metrics for empty image group: {group_name}"
+        )
+
+    metrics = metrics_from_confusion(
+        accumulator["tp"],
+        accumulator["fp"],
+        accumulator["fn"],
+        accumulator["tn"],
+    )
+    metrics["n_images"] = n_images
+
+    # Keep standard metrics pixel-aggregated, but average boundary metrics per
+    # image so large or building-dense images do not dominate boundary quality.
+    for key, value in accumulator["boundary_metric_sums"].items():
+        metrics[key] = float(value / n_images)
+
+    return metrics
+
+
 def evaluate_full_images(
     model,
     image_dir,
@@ -85,24 +153,19 @@ def evaluate_full_images(
 ):
     pairs = collect_image_mask_pairs(image_dir, mask_dir, image_ids)
 
-    total_tp = 0
-    total_fp = 0
-    total_fn = 0
-    total_tn = 0
-    boundary_metric_sums = {
-        "boundary_f1_2px": 0.0,
-        "boundary_iou_2px": 0.0,
-        "boundary_precision_2px": 0.0,
-        "boundary_recall_2px": 0.0,
-        "boundary_f1_5px": 0.0,
-        "boundary_iou_5px": 0.0,
-        "boundary_precision_5px": 0.0,
-        "boundary_recall_5px": 0.0,
+    city_accumulators = {
+        city: new_metric_accumulator()
+        for city in INRIA_PUBLIC_CITIES
     }
+    all_accumulator = new_metric_accumulator()
 
     model.eval()
 
     for image_path, mask_path in tqdm(pairs, desc="INRIA full-image evaluation"):
+        city, _ = parse_inria_name(image_path)
+        if city not in city_accumulators:
+            raise RuntimeError(f"Unexpected INRIA city '{city}' in {image_path}")
+
         image_rgb = load_rgb_image(image_path)
         target_mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
 
@@ -131,31 +194,16 @@ def evaluate_full_images(
                 f"{pred_mask.shape} vs {target_mask.shape}"
             )
 
-        tp, fp, fn, tn = confusion_from_masks(pred_mask, target_mask)
-        total_tp += tp
-        total_fp += fp
-        total_fn += fn
-        total_tn += tn
+        update_accumulator(city_accumulators[city], pred_mask, target_mask)
+        update_accumulator(all_accumulator, pred_mask, target_mask)
 
-        image_boundary_metrics = boundary_metrics_multi(
-            pred_mask,
-            target_mask,
-            tolerances=(2, 5),
-        )
-        for key, value in image_boundary_metrics.items():
-            boundary_metric_sums[key] += value
+    metrics_by_city = {
+        city: finalize_accumulator(city_accumulators[city], city)
+        for city in INRIA_PUBLIC_CITIES
+    }
+    metrics_by_city["ALL"] = finalize_accumulator(all_accumulator, "ALL")
 
-    metrics = metrics_from_confusion(total_tp, total_fp, total_fn, total_tn)
-    metrics["n_images"] = len(pairs)
-    metrics["threshold"] = float(threshold)
-
-    # Keep standard metrics pixel-aggregated, but average boundary metrics per
-    # image so large or building-dense images do not dominate boundary quality.
-    n_images = len(pairs)
-    for key, value in boundary_metric_sums.items():
-        metrics[key] = float(value / n_images)
-
-    return metrics
+    return metrics_by_city
 
 
 def log_evaluation(
@@ -171,7 +219,7 @@ def log_evaluation(
     stride,
     min_area,
     open_kernel_size,
-    metrics,
+    metrics_by_city,
 ):
     log_dir = os.path.dirname(log_path)
     if log_dir:
@@ -199,37 +247,78 @@ def log_evaluation(
         if not file_exists:
             writer.writerow(CSV_HEADER)
 
-        writer.writerow([
-            run_name,
-            architecture,
-            encoder,
-            protocol,
-            split,
-            describe_image_ids(image_ids),
-            metrics["n_images"],
-            round(threshold, 2),
-            tile_size,
-            stride,
-            min_area,
-            open_kernel_size,
-            round(metrics["iou_building"], 4),
-            round(metrics["dice_f1"], 4),
-            round(metrics["precision"], 4),
-            round(metrics["recall"], 4),
-            round(metrics["accuracy"], 4),
-            round(metrics["boundary_f1_2px"], 4),
-            round(metrics["boundary_iou_2px"], 4),
-            round(metrics["boundary_precision_2px"], 4),
-            round(metrics["boundary_recall_2px"], 4),
-            round(metrics["boundary_f1_5px"], 4),
-            round(metrics["boundary_iou_5px"], 4),
-            round(metrics["boundary_precision_5px"], 4),
-            round(metrics["boundary_recall_5px"], 4),
-            metrics["tp"],
-            metrics["fp"],
-            metrics["fn"],
-            metrics["tn"],
-        ])
+        for city in list(INRIA_PUBLIC_CITIES) + ["ALL"]:
+            metrics = metrics_by_city[city]
+            writer.writerow([
+                run_name,
+                architecture,
+                encoder,
+                protocol,
+                split,
+                city,
+                describe_image_ids(image_ids),
+                metrics["n_images"],
+                round(threshold, 2),
+                tile_size,
+                stride,
+                min_area,
+                open_kernel_size,
+                round(metrics["iou_building"], 4),
+                round(metrics["dice_f1"], 4),
+                round(metrics["precision"], 4),
+                round(metrics["recall"], 4),
+                round(metrics["accuracy"], 4),
+                round(metrics["boundary_f1_2px"], 4),
+                round(metrics["boundary_iou_2px"], 4),
+                round(metrics["boundary_precision_2px"], 4),
+                round(metrics["boundary_recall_2px"], 4),
+                round(metrics["boundary_f1_5px"], 4),
+                round(metrics["boundary_iou_5px"], 4),
+                round(metrics["boundary_precision_5px"], 4),
+                round(metrics["boundary_recall_5px"], 4),
+                metrics["tp"],
+                metrics["fp"],
+                metrics["fn"],
+                metrics["tn"],
+            ])
+
+
+def print_evaluation_summary(
+    split,
+    threshold,
+    tile_size,
+    stride,
+    min_area,
+    open_kernel_size,
+    metrics_by_city,
+):
+    print(f"\nINRIA {split} full-image evaluation")
+    print(
+        f"threshold: {threshold:.2f} | "
+        f"tile_size: {tile_size} | "
+        f"stride: {stride} | "
+        f"min_area: {min_area} | "
+        f"open_kernel_size: {open_kernel_size}"
+    )
+    print()
+    print(
+        f"{'City':<10} {'Images':>6} {'IoU':>7} {'Dice':>7} "
+        f"{'Prec':>7} {'Rec':>7} {'Acc':>7} {'BF1@2':>7} {'BF1@5':>7}"
+    )
+
+    for city in list(INRIA_PUBLIC_CITIES) + ["ALL"]:
+        metrics = metrics_by_city[city]
+        print(
+            f"{city:<10} "
+            f"{metrics['n_images']:>6} "
+            f"{metrics['iou_building']:>7.4f} "
+            f"{metrics['dice_f1']:>7.4f} "
+            f"{metrics['precision']:>7.4f} "
+            f"{metrics['recall']:>7.4f} "
+            f"{metrics['accuracy']:>7.4f} "
+            f"{metrics['boundary_f1_2px']:>7.4f} "
+            f"{metrics['boundary_f1_5px']:>7.4f}"
+        )
 
 
 def main():
@@ -281,7 +370,7 @@ def main():
         device=DEVICE,
     )
 
-    metrics = evaluate_full_images(
+    metrics_by_city = evaluate_full_images(
         model=model,
         image_dir=image_dir,
         mask_dir=mask_dir,
@@ -307,26 +396,17 @@ def main():
         stride=stride,
         min_area=min_area,
         open_kernel_size=open_kernel_size,
-        metrics=metrics,
+        metrics_by_city=metrics_by_city,
     )
 
-    print(
-        f"\nINRIA {args.split} full-image evaluation | "
-        f"threshold: {metrics['threshold']:.2f} | "
-        f"images: {metrics['n_images']} | "
-        f"IoU_building: {metrics['iou_building']:.4f} | "
-        f"Dice/F1: {metrics['dice_f1']:.4f} | "
-        f"Precision: {metrics['precision']:.4f} | "
-        f"Recall: {metrics['recall']:.4f} | "
-        f"Accuracy: {metrics['accuracy']:.4f} | "
-        f"Boundary F1 @2px: {metrics['boundary_f1_2px']:.4f} | "
-        f"Boundary IoU @2px: {metrics['boundary_iou_2px']:.4f} | "
-        f"Boundary F1 @5px: {metrics['boundary_f1_5px']:.4f} | "
-        f"Boundary IoU @5px: {metrics['boundary_iou_5px']:.4f} | "
-        f"TP: {metrics['tp']} | "
-        f"FP: {metrics['fp']} | "
-        f"FN: {metrics['fn']} | "
-        f"TN: {metrics['tn']}"
+    print_evaluation_summary(
+        split=args.split,
+        threshold=threshold,
+        tile_size=tile_size,
+        stride=stride,
+        min_area=min_area,
+        open_kernel_size=open_kernel_size,
+        metrics_by_city=metrics_by_city,
     )
     print("Results CSV:", log_path)
 
