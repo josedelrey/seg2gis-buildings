@@ -3,7 +3,6 @@ import copy
 import json
 import subprocess
 import sys
-import tempfile
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -68,6 +67,12 @@ def parse_args():
         "--fail_fast",
         action="store_true",
         help="Stop after the first failed experiment.",
+    )
+    parser.add_argument(
+        "--generated_config_dir",
+        type=str,
+        default="configs/generated",
+        help="Directory where per-run merged JSON configs are saved.",
     )
 
     return parser.parse_args()
@@ -219,6 +224,8 @@ def main():
     args = parse_args()
     config = load_experiment_config(args.experiments_config)
     base_config = load_project_config(args.project_config)
+    generated_config_dir = Path(args.generated_config_dir)
+    generated_config_dir.mkdir(parents=True, exist_ok=True)
 
     defaults = config.get("defaults", {})
     if defaults is None:
@@ -237,70 +244,70 @@ def main():
     print("Experiments:", len(experiments))
     print("Dry run:", args.dry_run)
     print("Fail fast:", args.fail_fast)
+    print("Generated config dir:", str(generated_config_dir))
 
     failures = []
     batch_start_time = time.monotonic()
     completed_durations = []
 
-    with tempfile.TemporaryDirectory(prefix="seg2gis_experiment_configs_") as config_dir:
-        for idx, exp in enumerate(experiments, start=1):
-            validate_experiment(exp)
-            train_config = build_training_config(base_config, exp)
-            config_path = write_training_config(
-                config=train_config,
-                config_dir=config_dir,
-                run_name=exp["run_name"],
+    for idx, exp in enumerate(experiments, start=1):
+        validate_experiment(exp)
+        train_config = build_training_config(base_config, exp)
+        config_path = write_training_config(
+            config=train_config,
+            config_dir=generated_config_dir,
+            run_name=exp["run_name"],
+        )
+        command = build_command(config_path)
+
+        print()
+        print("=" * 80)
+        print(f"Experiment {idx}/{len(experiments)}: {exp['run_name']}")
+        print("=" * 80)
+        print("Generated config:", config_path)
+        print_command(command)
+
+        if args.dry_run:
+            continue
+
+        print_batch_estimate(
+            batch_start_time=batch_start_time,
+            completed_durations=completed_durations,
+            remaining_count=len(experiments) - idx + 1,
+        )
+
+        experiment_start_time = time.monotonic()
+
+        try:
+            subprocess.run(command, check=True)
+        except subprocess.CalledProcessError as e:
+            experiment_duration = time.monotonic() - experiment_start_time
+            completed_durations.append(experiment_duration)
+            failures.append((exp["run_name"], e.returncode))
+            print(
+                f"FAILED: {exp['run_name']} with return code {e.returncode} "
+                f"after {format_duration(experiment_duration)}"
             )
-            command = build_command(config_path)
 
-            print()
-            print("=" * 80)
-            print(f"Experiment {idx}/{len(experiments)}: {exp['run_name']}")
-            print("=" * 80)
-            print("Generated config:", config_path)
-            print_command(command)
+            if args.fail_fast:
+                break
 
-            if args.dry_run:
-                continue
+            print("Continuing with next experiment...")
+        else:
+            experiment_duration = time.monotonic() - experiment_start_time
+            completed_durations.append(experiment_duration)
+            print(
+                f"Finished {exp['run_name']} in "
+                f"{format_duration(experiment_duration)}"
+            )
 
+        remaining_after_current = len(experiments) - idx
+        if remaining_after_current:
             print_batch_estimate(
                 batch_start_time=batch_start_time,
                 completed_durations=completed_durations,
-                remaining_count=len(experiments) - idx + 1,
+                remaining_count=remaining_after_current,
             )
-
-            experiment_start_time = time.monotonic()
-
-            try:
-                subprocess.run(command, check=True)
-            except subprocess.CalledProcessError as e:
-                experiment_duration = time.monotonic() - experiment_start_time
-                completed_durations.append(experiment_duration)
-                failures.append((exp["run_name"], e.returncode))
-                print(
-                    f"FAILED: {exp['run_name']} with return code {e.returncode} "
-                    f"after {format_duration(experiment_duration)}"
-                )
-
-                if args.fail_fast:
-                    break
-
-                print("Continuing with next experiment...")
-            else:
-                experiment_duration = time.monotonic() - experiment_start_time
-                completed_durations.append(experiment_duration)
-                print(
-                    f"Finished {exp['run_name']} in "
-                    f"{format_duration(experiment_duration)}"
-                )
-
-            remaining_after_current = len(experiments) - idx
-            if remaining_after_current:
-                print_batch_estimate(
-                    batch_start_time=batch_start_time,
-                    completed_durations=completed_durations,
-                    remaining_count=remaining_after_current,
-                )
 
     if failures:
         print()

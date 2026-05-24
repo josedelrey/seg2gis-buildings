@@ -1,2 +1,0 @@
-run_name,architecture,encoder,augmentation,epochs,batch_size,lr,best_epoch,best_val_dice_threshold_05,best_val_iou_threshold_05,best_val_accuracy_threshold_05,best_val_loss,best_threshold,best_threshold_val_dice,best_threshold_val_iou,best_threshold_val_accuracy,notes
-unet_effb3_256_noaug_e30,unet,efficientnet-b3,false,30,8,0.0001,18,0.8928,0.8063,0.9682,0.2634,0.46,0.8928,0.8064,0.9681,

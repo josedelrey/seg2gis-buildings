@@ -1,0 +1,102 @@
+{
+  "data": {
+    "raw_train_image_dir": "data/INRIA/train/images",
+    "raw_train_mask_dir": "data/INRIA/train/gt",
+    "raw_test_image_dir": "data/INRIA/test/images",
+    "tile_dir": "data/tiles_256_inria155",
+    "train_image_dir": "data/tiles_256_inria155/train/images",
+    "train_mask_dir": "data/tiles_256_inria155/train/masks",
+    "val_image_dir": "data/tiles_256_inria155/val/images",
+    "val_mask_dir": "data/tiles_256_inria155/val/masks",
+    "test_image_dir": "data/tiles_256_inria155/test/images",
+    "test_mask_dir": "data/tiles_256_inria155/test/masks"
+  },
+  "protocol": {
+    "name": "inria155_public_holdout_internal_val",
+    "train_image_ids": [
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36
+    ],
+    "val_image_ids": [
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "test_image_ids": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  "tiling": {
+    "tile_size": 256,
+    "stride": 256
+  },
+  "model": {
+    "architecture": "unet",
+    "encoder": "efficientnet-b3",
+    "model_dir": "models"
+  },
+  "training": {
+    "run_name": "unet_effb3_256_noaug_e30",
+    "batch_size": 8,
+    "epochs": 30,
+    "lr": 0.0001,
+    "augmentation": false,
+    "seed": 42,
+    "experiment_log_path": "results/experiments_inria155_phase2_augmentation.csv"
+  },
+  "evaluation": {
+    "threshold": 0.5,
+    "tile_size": 256,
+    "stride": 128,
+    "min_area": 500,
+    "open_kernel_size": 5
+  },
+  "inference": {
+    "image_path": null,
+    "model_path": "models/unet_effb3_256_noaug_e10.pth",
+    "threshold": 0.5,
+    "tile_size": 256,
+    "stride": 128,
+    "out_dir": "outputs/full_predictions",
+    "output_name": null,
+    "min_area": 500,
+    "open_kernel_size": 5,
+    "polygon_min_area": 150,
+    "vector_min_area": 150,
+    "epsilon_ratio": 0.002,
+    "export_vectors": true,
+    "crop_x": null,
+    "crop_y": null,
+    "crop_size": 1024
+  }
+}
