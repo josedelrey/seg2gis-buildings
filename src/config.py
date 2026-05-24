@@ -23,3 +23,7 @@ def get_config_value(config, *keys, default=None):
 
 def resolve_model_path(model_dir, run_name):
     return str(Path(model_dir) / f"{run_name}.pth")
+
+
+def resolve_model_metadata_path(model_dir, run_name):
+    return str(Path(model_dir) / f"{run_name}.json")

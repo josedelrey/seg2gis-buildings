@@ -1,7 +1,9 @@
 import os
 import csv
 import argparse
+import json
 import random
+import subprocess
 import time
 from datetime import datetime, timedelta
 
@@ -11,7 +13,13 @@ from torch.utils.data import DataLoader
 import segmentation_models_pytorch as smp
 from tqdm import tqdm
 
-from config import DEFAULT_CONFIG_PATH, get_config_value, load_config, resolve_model_path
+from config import (
+    DEFAULT_CONFIG_PATH,
+    get_config_value,
+    load_config,
+    resolve_model_metadata_path,
+    resolve_model_path,
+)
 from dataset import (
     BuildingDataset,
     describe_image_ids,
@@ -122,6 +130,134 @@ def set_seed(seed):
 
     torch.backends.cudnn.deterministic = False
     torch.backends.cudnn.benchmark = True
+
+
+def get_git_commit():
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout.strip()
+    except Exception:
+        return None
+
+
+def to_json_serializable(value):
+    if isinstance(value, dict):
+        return {
+            str(key): to_json_serializable(item)
+            for key, item in value.items()
+        }
+
+    if isinstance(value, (list, tuple)):
+        return [to_json_serializable(item) for item in value]
+
+    if isinstance(value, np.generic):
+        return value.item()
+
+    if isinstance(value, torch.Tensor):
+        if value.numel() == 1:
+            return value.detach().cpu().item()
+
+        return value.detach().cpu().tolist()
+
+    return value
+
+
+def save_model_metadata(
+    metadata_path,
+    run_name,
+    architecture,
+    encoder,
+    encoder_weights,
+    protocol,
+    train_image_ids,
+    val_image_ids,
+    test_image_ids,
+    train_image_dir,
+    train_mask_dir,
+    val_image_dir,
+    val_mask_dir,
+    train_tiles,
+    val_tiles,
+    augmentation,
+    epochs,
+    batch_size,
+    lr,
+    optimizer,
+    weight_decay,
+    scheduler,
+    scheduler_t_max,
+    scheduler_eta_min,
+    loss,
+    seed,
+    device,
+    mixed_precision,
+    best_epoch,
+    val_metrics,
+    checkpoint_path,
+    config_path,
+):
+    metadata_dir = os.path.dirname(metadata_path)
+    if metadata_dir:
+        os.makedirs(metadata_dir, exist_ok=True)
+
+    metadata = {
+        "run_name": run_name,
+        "architecture": architecture,
+        "encoder": encoder,
+        "encoder_weights": encoder_weights,
+        "protocol": protocol,
+        "train_image_ids": train_image_ids,
+        "val_image_ids": val_image_ids,
+        "test_image_ids": test_image_ids,
+        "train_image_dir": train_image_dir,
+        "train_mask_dir": train_mask_dir,
+        "val_image_dir": val_image_dir,
+        "val_mask_dir": val_mask_dir,
+        "train_tiles": train_tiles,
+        "val_tiles": val_tiles,
+        "augmentation": augmentation,
+        "epochs": epochs,
+        "batch_size": batch_size,
+        "lr": lr,
+        "optimizer": optimizer,
+        "weight_decay": weight_decay,
+        "scheduler": scheduler,
+        "scheduler_t_max": scheduler_t_max,
+        "scheduler_eta_min": scheduler_eta_min,
+        "loss": loss,
+        "seed": seed,
+        "device": device,
+        "mixed_precision": mixed_precision,
+        "best_epoch": best_epoch,
+        "val_loss": val_metrics["loss"],
+        "best_threshold": val_metrics["best_threshold"],
+        "best_val_dice": val_metrics["best_threshold_val_dice"],
+        "best_val_iou": val_metrics["best_threshold_val_iou"],
+        "best_val_precision": val_metrics["best_threshold_val_precision"],
+        "best_val_recall": val_metrics["best_threshold_val_recall"],
+        "best_val_accuracy": val_metrics["best_threshold_val_accuracy"],
+        "val_dice_threshold_05": val_metrics["dice_threshold_05"],
+        "val_iou_threshold_05": val_metrics["iou_threshold_05"],
+        "val_precision_threshold_05": val_metrics["precision_threshold_05"],
+        "val_recall_threshold_05": val_metrics["recall_threshold_05"],
+        "val_accuracy_threshold_05": val_metrics["accuracy_threshold_05"],
+        "checkpoint_path": checkpoint_path,
+        "metadata_path": metadata_path,
+        "config_path": config_path,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "git_commit": get_git_commit(),
+    }
+
+    with open(metadata_path, "w", encoding="utf-8") as f:
+        json.dump(to_json_serializable(metadata), f, indent=2)
+        f.write("\n")
+
+    print(f"Saved model metadata: {metadata_path}")
 
 
 def count_values_above_thresholds(values, thresholds):
@@ -369,6 +505,7 @@ def main():
     log_path = require_config_value(config, "training", "experiment_log_path")
 
     model_path = resolve_model_path(model_dir, run_name)
+    metadata_path = resolve_model_metadata_path(model_dir, run_name)
 
     os.makedirs(model_dir, exist_ok=True)
 
@@ -386,6 +523,7 @@ def main():
     print("Protocol val image ids:", describe_image_ids(val_image_ids))
     print("Protocol test image ids:", describe_image_ids(test_image_ids))
     print("Model path:", model_path)
+    print("Metadata path:", metadata_path)
     print("Experiment log:", log_path)
     print("Mixed precision:", DEVICE == "cuda")
 
@@ -419,10 +557,15 @@ def main():
         persistent_workers=True,
     )
 
+    encoder_weights = "imagenet"
+    optimizer_weight_decay = 1e-4
+    scheduler_eta_min = 1e-6
+    loss_name = "DiceLoss + BCEWithLogitsLoss"
+
     model = build_model(
         architecture,
         encoder,
-        encoder_weights="imagenet",
+        encoder_weights=encoder_weights,
     ).to(DEVICE)
 
     dice_loss = smp.losses.DiceLoss(mode="binary")
@@ -434,13 +577,13 @@ def main():
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=lr,
-        weight_decay=1e-4,
+        weight_decay=optimizer_weight_decay,
     )
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
         T_max=epochs,
-        eta_min=1e-6,
+        eta_min=scheduler_eta_min,
     )
 
     scaler = torch.amp.GradScaler(
@@ -549,6 +692,40 @@ def main():
             best_threshold_val_accuracy = val_metrics["best_threshold_val_accuracy"]
             best_epoch = epoch
             torch.save(model.state_dict(), model_path)
+            save_model_metadata(
+                metadata_path=metadata_path,
+                run_name=run_name,
+                architecture=architecture,
+                encoder=encoder,
+                encoder_weights=encoder_weights,
+                protocol=protocol,
+                train_image_ids=train_image_ids,
+                val_image_ids=val_image_ids,
+                test_image_ids=test_image_ids,
+                train_image_dir=train_image_dir,
+                train_mask_dir=train_mask_dir,
+                val_image_dir=val_image_dir,
+                val_mask_dir=val_mask_dir,
+                train_tiles=len(train_dataset),
+                val_tiles=len(val_dataset),
+                augmentation=augmentation,
+                epochs=epochs,
+                batch_size=batch_size,
+                lr=lr,
+                optimizer=optimizer.__class__.__name__,
+                weight_decay=optimizer_weight_decay,
+                scheduler=scheduler.__class__.__name__,
+                scheduler_t_max=epochs,
+                scheduler_eta_min=scheduler_eta_min,
+                loss=loss_name,
+                seed=seed,
+                device=DEVICE,
+                mixed_precision=(DEVICE == "cuda"),
+                best_epoch=best_epoch,
+                val_metrics=val_metrics,
+                checkpoint_path=model_path,
+                config_path=args.config,
+            )
             print("Saved best model by tuned validation Dice.")
 
         scheduler.step()
@@ -589,6 +766,41 @@ def main():
         f"Best Precision: {final_metrics['best_threshold_val_precision']:.4f} | "
         f"Best Recall: {final_metrics['best_threshold_val_recall']:.4f} | "
         f"Best Accuracy: {final_metrics['best_threshold_val_accuracy']:.4f}"
+    )
+
+    save_model_metadata(
+        metadata_path=metadata_path,
+        run_name=run_name,
+        architecture=architecture,
+        encoder=encoder,
+        encoder_weights=encoder_weights,
+        protocol=protocol,
+        train_image_ids=train_image_ids,
+        val_image_ids=val_image_ids,
+        test_image_ids=test_image_ids,
+        train_image_dir=train_image_dir,
+        train_mask_dir=train_mask_dir,
+        val_image_dir=val_image_dir,
+        val_mask_dir=val_mask_dir,
+        train_tiles=len(train_dataset),
+        val_tiles=len(val_dataset),
+        augmentation=augmentation,
+        epochs=epochs,
+        batch_size=batch_size,
+        lr=lr,
+        optimizer=optimizer.__class__.__name__,
+        weight_decay=optimizer_weight_decay,
+        scheduler=scheduler.__class__.__name__,
+        scheduler_t_max=epochs,
+        scheduler_eta_min=scheduler_eta_min,
+        loss=loss_name,
+        seed=seed,
+        device=DEVICE,
+        mixed_precision=(DEVICE == "cuda"),
+        best_epoch=best_epoch,
+        val_metrics=final_metrics,
+        checkpoint_path=model_path,
+        config_path=args.config,
     )
 
     log_experiment(
