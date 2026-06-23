@@ -10,7 +10,7 @@ from pathlib import Path
 import yaml
 
 
-DEFAULT_EXPERIMENT_CONFIG = "configs/experiments_class_showcase_aug.yaml"
+DEFAULT_EXPERIMENT_CONFIG = "configs/experiments_phase2_augmentation_boundary_loss.yaml"
 DEFAULT_PROJECT_CONFIG = "configs/default.json"
 
 REQUIRED_EXPERIMENT_FIELDS = ("run_name", "architecture", "encoder", "augmentation")

@@ -25,8 +25,8 @@ from postprocess import postprocess_mask
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 RESULT_PATHS = {
-    "val": "results/val_full_image_results.csv",
-    "test": "outputs/test_results.csv",
+    "val": "results/tables/phase2_full_image_validation_metrics_by_city.csv",
+    "test": "results/tables/phase2_full_image_test_metrics_by_city.csv",
 }
 CSV_HEADER = [
     "run_name",

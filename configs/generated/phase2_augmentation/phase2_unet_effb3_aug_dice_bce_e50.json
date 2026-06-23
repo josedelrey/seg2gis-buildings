@@ -1,8 +1,8 @@
 {
   "data": {
-    "raw_train_image_dir": "data/INRIA/train/images",
-    "raw_train_mask_dir": "data/INRIA/train/gt",
-    "raw_test_image_dir": "data/INRIA/test/images",
+    "raw_train_image_dir": "data/AerialImageDataset/train/images",
+    "raw_train_mask_dir": "data/AerialImageDataset/train/gt",
+    "raw_test_image_dir": "data/AerialImageDataset/test/images",
     "tile_dir": "data/tiles_256_inria155",
     "train_image_dir": "data/tiles_256_inria155/train/images",
     "train_mask_dir": "data/tiles_256_inria155/train/masks",
@@ -63,22 +63,22 @@
   "model": {
     "architecture": "unet",
     "encoder": "efficientnet-b3",
-    "model_dir": "models/class_showcase_loss"
+    "model_dir": "models/phase2_augmentation"
   },
   "training": {
-    "run_name": "p3_unet_effb3_256_aug_boundary_bce_w2_e50",
+    "run_name": "phase2_unet_effb3_aug_dice_bce_e50",
     "batch_size": 8,
     "epochs": 50,
     "lr": 0.0001,
     "augmentation": true,
     "seed": 42,
-    "experiment_log_path": "results/class_showcase_loss_training.csv"
+    "experiment_log_path": "results/tables/phase2_augmentation_training_metrics.csv"
   },
   "loss": {
-    "name": "dice_boundary_bce",
+    "name": "dice_bce",
     "dice_weight": 1.0,
     "bce_weight": 1.0,
-    "boundary_weight": 2.0,
+    "boundary_weight": 0.0,
     "boundary_width": 3
   },
   "evaluation": {
@@ -94,7 +94,7 @@
     "threshold": 0.5,
     "tile_size": 256,
     "stride": 128,
-    "out_dir": "outputs/full_predictions",
+    "out_dir": "results/full_predictions",
     "output_name": null,
     "min_area": 500,
     "open_kernel_size": 5,

@@ -61,18 +61,25 @@
     "stride": 256
   },
   "model": {
-    "architecture": "fpn",
-    "encoder": "resnet50",
-    "model_dir": "models/phase1"
+    "architecture": "unet",
+    "encoder": "efficientnet-b3",
+    "model_dir": "models/phase3_loss_comparison"
   },
   "training": {
-    "run_name": "fpn_r50",
+    "run_name": "phase3_unet_effb3_aug_dice_bce_e50",
     "batch_size": 8,
-    "epochs": 10,
+    "epochs": 50,
     "lr": 0.0001,
-    "augmentation": false,
+    "augmentation": true,
     "seed": 42,
-    "experiment_log_path": "results/tables/experiments_inria155.csv"
+    "experiment_log_path": "results/tables/phase3_loss_comparison_training_metrics.csv"
+  },
+  "loss": {
+    "name": "dice_bce",
+    "dice_weight": 1.0,
+    "bce_weight": 1.0,
+    "boundary_weight": 0.0,
+    "boundary_width": 3
   },
   "evaluation": {
     "threshold": 0.5,

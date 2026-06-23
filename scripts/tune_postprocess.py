@@ -61,7 +61,7 @@ def parse_args():
         description="Tune postprocessing on the INRIA validation split only.",
     )
     parser.add_argument("--config", type=str, default=DEFAULT_CONFIG_PATH)
-    parser.add_argument("--out_csv", type=str, default="results/postprocess_tuning.csv")
+    parser.add_argument("--out_csv", type=str, default="results/tables/postprocess_tuning_exploratory.csv")
     parser.add_argument("--thresholds", type=str, default="0.30:0.80:0.01")
     parser.add_argument("--min_areas", type=str, default="0,64,128,256,500,1000")
     parser.add_argument("--open_kernel_sizes", type=str, default="0,3,5")

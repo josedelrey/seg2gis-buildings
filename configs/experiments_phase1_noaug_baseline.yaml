@@ -6,7 +6,7 @@ defaults:
   epochs: 10
   lr: 0.0001
   seed: 42
-  experiment_log_path: outputs/experiments_phase1_noaug_rerun.csv
+  experiment_log_path: results/tables/phase1_noaugmentation_architecture_screening_rerun.csv
 
 experiments:
   - run_name: unet_r34_256_noaug_e10

@@ -1,10 +1,12 @@
-import os
 import argparse
+import json
+import os
 import sys
 
 import cv2
-import torch
 import matplotlib.pyplot as plt
+import rasterio
+import torch
 
 sys.path.append(os.path.abspath("src"))
 
@@ -13,19 +15,12 @@ from gis_utils import (
     load_model,
     load_rgb_image,
     predict_full_image_tiled,
-    threshold_probability_map,
+    save_mask_png,
     save_probability_map,
     save_probability_png,
-    save_mask_png,
+    threshold_probability_map,
 )
-
 from postprocess import postprocess_mask
-from vectorize import (
-    mask_to_contours,
-    simplify_contours,
-    draw_polygons_on_image,
-    save_vector_polygons,
-)
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -47,11 +42,9 @@ def parse_args():
     parser.add_argument("--tile_size", type=int, default=None)
     parser.add_argument("--stride", type=int, default=None)
 
-    # Postprocessing
     parser.add_argument("--min_area", type=int, default=None)
     parser.add_argument("--open_kernel_size", type=int, default=None)
 
-    # Polygon extraction
     parser.add_argument("--polygon_min_area", type=int, default=None)
     parser.add_argument("--epsilon_ratio", type=float, default=None)
     parser.add_argument("--export_vectors", action="store_true", default=None)
@@ -69,7 +62,6 @@ def parse_args():
     parser.add_argument("--out_dir", type=str, default=None)
     parser.add_argument("--output_name", type=str, default=None)
 
-    # Showcase crop
     parser.add_argument("--crop_x", type=int, default=None)
     parser.add_argument("--crop_y", type=int, default=None)
     parser.add_argument("--crop_size", type=int, default=None)
@@ -106,10 +98,34 @@ def apply_config(args, config):
         "encoder",
         default="efficientnet-b3",
     )
-    args.threshold = select_value(args.threshold, config, "inference", "threshold", default=0.5)
-    args.tile_size = select_value(args.tile_size, config, "inference", "tile_size", default=256)
-    args.stride = select_value(args.stride, config, "inference", "stride", default=128)
-    args.min_area = select_value(args.min_area, config, "inference", "min_area", default=500)
+    args.threshold = select_value(
+        args.threshold,
+        config,
+        "inference",
+        "threshold",
+        default=0.5,
+    )
+    args.tile_size = select_value(
+        args.tile_size,
+        config,
+        "inference",
+        "tile_size",
+        default=256,
+    )
+    args.stride = select_value(
+        args.stride,
+        config,
+        "inference",
+        "stride",
+        default=128,
+    )
+    args.min_area = select_value(
+        args.min_area,
+        config,
+        "inference",
+        "min_area",
+        default=500,
+    )
     args.open_kernel_size = select_value(
         args.open_kernel_size,
         config,
@@ -143,12 +159,23 @@ def apply_config(args, config):
         config,
         "inference",
         "out_dir",
-        default="outputs/full_predictions",
+        default="results/full_predictions",
     )
-    args.output_name = select_value(args.output_name, config, "inference", "output_name")
+    args.output_name = select_value(
+        args.output_name,
+        config,
+        "inference",
+        "output_name",
+    )
     args.crop_x = select_value(args.crop_x, config, "inference", "crop_x")
     args.crop_y = select_value(args.crop_y, config, "inference", "crop_y")
-    args.crop_size = select_value(args.crop_size, config, "inference", "crop_size", default=1024)
+    args.crop_size = select_value(
+        args.crop_size,
+        config,
+        "inference",
+        "crop_size",
+        default=1024,
+    )
     args.export_vectors = select_value(
         args.export_vectors,
         config,
@@ -167,6 +194,26 @@ def apply_config(args, config):
         )
 
     return args
+
+
+def validate_area_filter_crs(crs, min_area, allow_geographic_area=False):
+    if min_area is None or min_area <= 0:
+        return
+
+    if crs is None:
+        raise ValueError(
+            "Cannot apply vector min_area because the source raster has no CRS. "
+            "Use a georeferenced raster with a projected CRS, set vector_min_area=0, "
+            "or pass allow_geographic_area=True if you understand the units."
+        )
+
+    if crs.is_geographic and not allow_geographic_area:
+        raise ValueError(
+            "Cannot apply vector_min_area with a geographic CRS because polygon area "
+            "would be measured in square degrees, not square meters. Use "
+            "--vector_min_area 0, reproject the raster, or pass "
+            "--allow_geographic_area only if degree-based area filtering is intentional."
+        )
 
 
 def get_output_name(image_path, output_name):
@@ -262,6 +309,59 @@ def generate_masks(args, prob_map):
     return raw_mask, clean_mask
 
 
+def mask_to_contours(mask, min_area=64):
+    mask_uint8 = (mask > 0).astype("uint8") * 255
+
+    contours, _ = cv2.findContours(
+        mask_uint8,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE,
+    )
+
+    filtered = []
+
+    for contour in contours:
+        area = cv2.contourArea(contour)
+
+        if area >= min_area:
+            filtered.append(contour)
+
+    return filtered
+
+
+def simplify_contours(contours, epsilon_ratio=0.01):
+    simplified = []
+
+    for contour in contours:
+        perimeter = cv2.arcLength(contour, closed=True)
+        epsilon = epsilon_ratio * perimeter
+
+        polygon = cv2.approxPolyDP(
+            contour,
+            epsilon,
+            closed=True,
+        )
+
+        if len(polygon) >= 3:
+            simplified.append(polygon)
+
+    return simplified
+
+
+def draw_polygons_on_image(image_rgb, polygons, color=(255, 0, 0), thickness=2):
+    overlay = image_rgb.copy()
+
+    cv2.drawContours(
+        overlay,
+        polygons,
+        contourIdx=-1,
+        color=color,
+        thickness=thickness,
+    )
+
+    return overlay
+
+
 def generate_polygon_overlay(args, image_rgb, clean_mask):
     contours = mask_to_contours(
         clean_mask,
@@ -283,7 +383,130 @@ def generate_polygon_overlay(args, image_rgb, clean_mask):
     print("Extracted contours:", len(contours))
     print("Simplified polygons:", len(polygons))
 
-    return overlay_rgb
+    return overlay_rgb, polygons
+
+
+def ring_area(coords):
+    if len(coords) < 4:
+        return 0.0
+
+    total = 0.0
+
+    for i in range(len(coords) - 1):
+        x1, y1 = coords[i]
+        x2, y2 = coords[i + 1]
+        total += x1 * y2 - x2 * y1
+
+    return abs(total) * 0.5
+
+
+def cv_contour_to_geojson_feature(contour, transform, min_area):
+    coordinates = []
+
+    for point in contour[:, 0, :]:
+        col = float(point[0])
+        row = float(point[1])
+        x, y = transform * (col, row)
+        coordinates.append([float(x), float(y)])
+
+    if len(coordinates) < 3:
+        return None
+
+    if coordinates[0] != coordinates[-1]:
+        coordinates.append(coordinates[0])
+
+    area = ring_area(coordinates)
+    area_px = float(cv2.contourArea(contour))
+
+    if min_area is not None and min_area > 0 and area < min_area:
+        return None
+
+    return {
+        "type": "Feature",
+        "properties": {
+            "area": float(area),
+            "area_px": area_px,
+            "vertices": int(len(contour)),
+        },
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [coordinates],
+        },
+    }
+
+
+def save_geojson_from_polygons(
+    polygons,
+    raster_path,
+    out_path,
+    min_area,
+    allow_geographic_area,
+):
+    out_path = os.path.abspath(out_path)
+
+    with rasterio.open(raster_path) as src:
+        transform = src.transform
+        crs = src.crs
+
+    validate_area_filter_crs(
+        crs=crs,
+        min_area=min_area,
+        allow_geographic_area=allow_geographic_area,
+    )
+
+    features = []
+
+    for contour in polygons:
+        feature = cv_contour_to_geojson_feature(
+            contour=contour,
+            transform=transform,
+            min_area=min_area,
+        )
+
+        if feature is not None:
+            features.append(feature)
+
+    geojson = {
+        "type": "FeatureCollection",
+        "features": features,
+    }
+
+    if crs is not None:
+        geojson["crs"] = {
+            "type": "name",
+            "properties": {
+                "name": crs.to_string(),
+            },
+        }
+
+    out_dir = os.path.dirname(out_path)
+
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+
+    if os.path.exists(out_path):
+        os.remove(out_path)
+
+    print(f"Vector records to write: {len(features)}", flush=True)
+    print(f"Absolute GeoJSON path: {out_path}", flush=True)
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(geojson, f)
+
+    if not os.path.exists(out_path):
+        raise RuntimeError(
+            f"GeoJSON export reported no exception, but file was not created: {out_path}"
+        )
+
+    size_bytes = os.path.getsize(out_path)
+
+    if size_bytes == 0:
+        raise RuntimeError(f"GeoJSON file was created but is empty: {out_path}")
+
+    print(f"Created GeoJSON file: {out_path}", flush=True)
+    print(f"GeoJSON file size: {size_bytes} bytes", flush=True)
+
+    return features
 
 
 def save_outputs(prob_map, raw_mask, clean_mask, polygon_overlay_rgb, output_paths):
@@ -303,27 +526,27 @@ def save_outputs(prob_map, raw_mask, clean_mask, polygon_overlay_rgb, output_pat
     )
 
 
-def save_vector_outputs(args, clean_mask, output_paths):
+def save_vector_outputs(args, polygons, output_paths):
     if not args.export_vectors:
         return None
 
-    gdf = save_vector_polygons(
-        mask=clean_mask,
+    print("Saving GIS polygons:", output_paths["polygons_geojson"], flush=True)
+
+    features = save_geojson_from_polygons(
+        polygons=polygons,
         raster_path=args.image_path,
         out_path=output_paths["polygons_geojson"],
         min_area=args.vector_min_area,
         allow_geographic_area=args.allow_geographic_area,
     )
 
-    save_vector_polygons(
-        mask=clean_mask,
-        raster_path=args.image_path,
-        out_path=output_paths["polygons_gpkg"],
-        min_area=args.vector_min_area,
-        allow_geographic_area=args.allow_geographic_area,
+    print(
+        "Skipped GPKG export because the GeoPandas/GDAL writer is crashing "
+        "in this environment.",
+        flush=True,
     )
 
-    return gdf
+    return features
 
 
 def save_showcase_crop(
@@ -388,6 +611,8 @@ def print_saved_outputs(output_paths):
     print("Saved cleaned binary mask: ", output_paths["clean_mask_png"])
     print("Saved polygon overlay:     ", output_paths["polygon_overlay_png"])
     print("Saved showcase crop:       ", output_paths["showcase_crop_png"])
+    print("Saved GeoJSON polygons:    ", output_paths["polygons_geojson"])
+    print("Skipped GPKG polygons:     ", output_paths["polygons_gpkg"])
     print()
     print("Done.")
 
@@ -418,7 +643,7 @@ def main():
         prob_map=prob_map,
     )
 
-    polygon_overlay_rgb = generate_polygon_overlay(
+    polygon_overlay_rgb, polygons = generate_polygon_overlay(
         args=args,
         image_rgb=image_rgb,
         clean_mask=clean_mask,
@@ -432,9 +657,9 @@ def main():
         output_paths=output_paths,
     )
 
-    vector_gdf = save_vector_outputs(
+    vector_features = save_vector_outputs(
         args=args,
-        clean_mask=clean_mask,
+        polygons=polygons,
         output_paths=output_paths,
     )
 
@@ -451,10 +676,8 @@ def main():
 
     print_saved_outputs(output_paths)
 
-    if vector_gdf is not None:
-        print("Saved GIS polygons:        ", output_paths["polygons_geojson"])
-        print("Saved GIS polygons:        ", output_paths["polygons_gpkg"])
-        print("Vector polygon count:      ", len(vector_gdf))
+    if vector_features is not None:
+        print("Vector polygon count:      ", len(vector_features))
 
 
 if __name__ == "__main__":

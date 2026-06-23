@@ -1,83 +1,178 @@
 # seg2gis-buildings
 
-Semantic segmentation pipeline for extracting building footprints from aerial imagery and preparing the predictions for GIS-style vector outputs.
+Semantic segmentation pipeline for extracting building footprints from aerial imagery and converting the predictions into GIS-style polygon outputs.
 
-This repository is a work in progress. The current version focuses on the core computer vision workflow: preparing image tiles, training segmentation models, comparing validation performance, running tiled inference over larger images, cleaning predicted masks, and drawing polygon overlays. The next phase will focus on testing the standard geometric augmentation recipe with the three best-performing models and improving the vectorization / polygonization step so the output is more useful in GIS workflows.
+The repository is organized for a final master's thesis workflow: prepare tiles, train segmentation models, compare validation metrics, evaluate full aerial images, post-process masks, and export polygon footprints. The dataset itself stays in `data/` and is not modified by the cleanup.
 
-## Motivation
+## Current Best Result
 
-Building footprint extraction is a common remote-sensing task with practical relevance for urban analysis, cadastral mapping, infrastructure monitoring, and disaster response. The goal of this project is to move from aerial imagery to building masks, and then toward simplified polygon representations that can be inspected or used downstream in geospatial tools.
+The current selected model is:
 
-I am using this repository as an applied machine learning project: not only to train a segmentation model, but also to document the experimental process and build a reproducible pipeline around it.
+```text
+phase2_unet_effb3_aug_boundary_bce_w2_e50
+```
 
-## Current Scope
+It is a U-Net with an EfficientNet-B3 encoder, geometric augmentation, Dice loss plus boundary-weighted BCE, trained for 50 epochs on the INRIA public holdout protocol:
 
-The repository currently includes:
+| Split | Image IDs per city | Total images | Purpose |
+| --- | --- | ---: | --- |
+| Train | 11-36 | 130 | Model fitting |
+| Validation | 6-10 | 25 | Model selection and threshold/postprocess checks |
+| Test | 1-5 | 25 | Held-out reporting |
 
-- Dataset tiling utilities for train, validation, and test imagery.
-- PyTorch training code using `segmentation_models_pytorch`.
-- Support for multiple architectures and encoders, including U-Net, FPN, DeepLabV3+, and PSPNet.
-- Basic experiment logging to CSV.
-- Validation prediction visualizations.
-- Full-image tiled inference with overlapping tiles.
-- Post-processing for binary masks using connected components and morphological opening.
-- Initial contour extraction and polygon overlay generation.
-- GeoJSON and GeoPackage export using source raster transform / CRS.
+Overall full-image results for the selected model:
 
-The project does not yet include a complete production GIS workflow. The current vector export is a first georeferenced polygonization pass and still needs more work on polygon quality, topology, and validation.
+| Split | IoU | Dice/F1 | Precision | Recall | Accuracy | Boundary F1 @2 px | Boundary F1 @5 px |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Validation | 0.8016 | 0.8899 | 0.9052 | 0.8751 | 0.9666 | 0.6246 | 0.8023 |
+| Test | 0.7876 | 0.8812 | 0.9064 | 0.8573 | 0.9681 | 0.6307 | 0.7981 |
 
-## Visual Proof
+Per-city Dice/F1 for the selected model:
 
-Example full-image inference output from the current U-Net + EfficientNet-B3 baseline:
+| City | Validation | Test |
+| --- | ---: | ---: |
+| Austin | 0.8814 | 0.8992 |
+| Chicago | 0.8540 | 0.8329 |
+| Kitsap | 0.7424 | 0.8248 |
+| Tyrol-w | 0.9025 | 0.8994 |
+| Vienna | 0.9213 | 0.9084 |
+| ALL | 0.8899 | 0.8812 |
 
-![Building footprint extraction example](./images/building_footprint_showcase.png)
+## Result Files
 
-The figure shows an aerial crop, model probability map, post-processed binary mask, and polygon overlay. This is meant as a qualitative snapshot of the current WIP pipeline rather than a final GIS-quality footprint product.
+All CSV result tables are now in `results/tables/`:
 
-Full-scene mask and polygon overlay from the same inference run:
+| File | Meaning |
+| --- | --- |
+| `phase1_noaugmentation_architecture_screening_initial.csv` | Original 10-epoch no-augmentation architecture/encoder screening. Best Dice@0.5: U-Net + EfficientNet-B3, 0.8516. |
+| `phase1_noaugmentation_architecture_screening_legacy.csv` | Preserved older copy of the Phase 1 no-augmentation table. |
+| `phase1_noaugmentation_architecture_screening_threshold_tuned.csv` | Later Phase 1 no-augmentation rerun with tuned thresholds. Best tuned Dice: FPN + EfficientNet-B3, 0.8497. |
+| `phase2_augmentation_training_metrics.csv` | Augmented 50-epoch runs comparing Dice+BCE vs boundary-weighted BCE. Best tuned validation Dice: 0.8890. |
+| `phase2_full_image_validation_metrics_by_city.csv` | Full-image validation metrics for the selected Phase 2 model by city and overall. |
+| `phase2_full_image_test_metrics_by_city.csv` | Held-out full-image test metrics for the selected Phase 2 model by city and overall. |
+
+Figures used in the README live in `results/figures/`. Larger generated artifacts, such as tiled prediction grids and full-image probability maps, live under `results/qualitative/` and `results/full_predictions/`; those folders are ignored by git because they are large generated outputs.
+
+## Visual Examples
+
+Example full-image inference output from the baseline U-Net + EfficientNet-B3 workflow:
+
+![Building footprint extraction example](./results/figures/building_footprint_showcase.png)
+
+Full-scene mask and polygon overlay from the same baseline run:
 
 | Clean building mask | Polygon overlay |
 | --- | --- |
-| ![Full-scene cleaned building mask](./images/austin1_unet_effb3_clean_mask.png) | ![Full-scene polygon overlay](./images/austin1_unet_effb3_polygons_overlay.jpg) |
+| ![Full-scene cleaned building mask](./results/figures/austin1_phase1_unet_effb3_noaugmentation_clean_mask.png) | ![Full-scene polygon overlay](./results/figures/austin1_phase1_unet_effb3_noaugmentation_polygons_overlay.jpg) |
 
-Phase 1 model comparison on one validation tile:
+Phase 1 no-augmentation model comparison on one validation tile:
 
-![No-augmentation model comparison grid](./images/phase1_noaug_model_comparison.png)
+![No-augmentation model comparison grid](./results/figures/phase1_noaugmentation_model_comparison.png)
 
-This grid compares the input image and ground truth against predictions from all 14 no-augmentation baseline models.
+## Repository Structure
 
-## Pipeline
+```text
+configs/
+  default.json
+  experiments_phase1_noaug_baseline.yaml
+  experiments_phase2_augmentation_boundary_loss.yaml
+  generated/
+    phase1/
+    phase2_augmentation/
+    archive_phase3_loss_comparison/
 
-```mermaid
-flowchart LR
-    A["Aerial imagery and masks"] --> B["Tile preparation"]
-    B --> C["Train / validation split"]
-    C --> D["Segmentation model training"]
-    D --> E["Validation metrics and model comparison"]
-    E --> F["Tiled inference on larger images"]
-    F --> G["Mask thresholding and post-processing"]
-    G --> H["Contour simplification and polygon overlay"]
-    G --> I["GeoJSON / GeoPackage export"]
+data/
+  AerialImageDataset/
+  tiles_256_inria155/
+
+docs/
+  presentation/
+
+models/
+  phase1/
+  phase2_augmentation/
+
+results/
+  tables/
+  figures/
+  full_predictions/
+  qualitative/
+
+scripts/
+  prepare_tiles.py
+  run_experiments.py
+  predict_full_image.py
+  tune_postprocess.py
+  sanity_check_boundary_metrics.py
+
+src/
+  config.py
+  dataset.py
+  train.py
+  evaluate.py
+  metrics.py
+  losses.py
+  models.py
+  gis_utils.py
+  postprocess.py
+  vectorize.py
+  transforms.py
+```
+
+The important convention is:
+
+- `data/` is the dataset and generated tiles. Do not clean or reorganize it as part of repo housekeeping.
+- `results/tables/` is the source of truth for result CSVs.
+- `results/figures/` contains small, curated figures that are useful for documentation.
+- `results/full_predictions/` and `results/qualitative/` contain large generated result artifacts and are ignored by git.
+- `docs/presentation/` contains presentation source files, deck files, build artifacts, and asset-generation scripts.
+
+## Environment Setup
+
+This project is currently configured for the local conda environment named `cv`.
+
+Use:
+
+```powershell
+conda activate cv
+```
+
+Python interpreter:
+
+```text
+C:\Users\rlyeh\miniconda3\envs\cv\python.exe
+```
+
+Install or refresh dependencies with:
+
+```powershell
+C:\Users\rlyeh\miniconda3\envs\cv\python.exe -m pip install -r requirements.txt
+```
+
+On Windows, the geospatial stack can be easier through conda-forge:
+
+```powershell
+conda activate cv
+conda install -c conda-forge rasterio shapely geopandas
 ```
 
 ## Dataset
 
-The code is currently organized around the `AerialImageDataset` directory structure:
+The code expects the INRIA-style aerial image dataset under:
 
 ```text
-data/
-  AerialImageDataset/
-    train/
-      images/
-      gt/
-    test/
-      images/
+data/AerialImageDataset/
+  train/
+    images/
+    gt/
+  test/
+    images/
 ```
 
-The tiling script creates 256 x 256 PNG tiles under:
+Prepared tiles are expected under:
 
 ```text
-data/tiles_256/
+data/tiles_256_inria155/
   train/
     images/
     masks/
@@ -86,237 +181,84 @@ data/tiles_256/
     masks/
   test/
     images/
+    masks/
 ```
 
-The raw data, generated tiles, trained model weights, and output images are intentionally ignored by git.
+## Reproduce The Workflow
 
-## Experiments So Far
+Run commands from the repository root.
 
-The current committed experiment table covers no-augmentation runs for several architecture / encoder combinations. The best validation result so far is:
+Prepare tiles:
 
-| Model | Encoder | Augmentation | Epochs | Best epoch | Best validation Dice |
-| --- | --- | --- | ---: | ---: | ---: |
-| U-Net | EfficientNet-B3 | none | 10 | 9 | 0.8516 |
-
-The Phase 1 no-augmentation baseline results are saved in:
-
-```text
-results/experiments_phase1_noaug_baseline.csv
-```
-
-These results should be read as an initial baseline rather than a final benchmark. Phase 2 experiment logs will be written to:
-
-```text
-results/experiments_phase2_augmentation.csv
-```
-
-In the next phase, I plan to rerun the strongest models with the standard geometric augmentation setting to test whether the models generalize better.
-
-## Repository Structure
-
-```text
-src/
-  config.py         Small JSON config loader used by scripts
-  dataset.py        Dataset wrapper for image / mask tiles
-  train.py          Training, validation, threshold tuning, experiment logging
-  evaluate.py       Full-image validation/test evaluation
-  metrics.py        Reusable confusion-matrix metric helpers
-  gis_utils.py      Model loading and tiled full-image inference helpers
-  postprocess.py    Binary mask cleanup utilities
-  vectorize.py      Contour extraction, polygon overlay, and geospatial vector export utilities
-
-configs/
-  default.json      Default data paths, model settings, training settings, and inference settings
-  experiments_phase1_noaug_baseline.yaml  Phase 1 baseline experiment runner config
-  experiments_phase2_augmentation.yaml    Phase 2 augmentation experiment runner config
-
-scripts/
-  prepare_tiles.py          Create train / validation / test tiles
-  run_experiments.py        Run selected training experiments
-  predict_full_image.py     Run tiled inference on a larger image
-
-results/
-  experiments_phase1_noaug_baseline.csv  Baseline no-augmentation experiment results
-  experiments_phase2_augmentation.csv    Augmentation experiment log for the next phase
-
-images/
-  austin1_unet_effb3_clean_mask.png      Full-scene cleaned mask example
-  austin1_unet_effb3_polygons_overlay.jpg Full-scene polygon overlay example
-  building_footprint_showcase.png        README visual example
-  phase1_noaug_model_comparison.png      Phase 1 model comparison example
-```
-
-## Environment Setup
-
-Recommended Python version: Python 3.10 or 3.11.
-
-This project can run on CPU, but training segmentation models is much more practical with a CUDA-capable GPU. The dependency ranges in `requirements.txt` are bounded so the code runs against compatible library APIs without requiring an export of a local machine-specific environment.
-
-Create and activate a virtual environment:
-
-```bash
-python -m venv .venv
-```
-
-On Windows PowerShell:
-
-```bash
-.venv\Scripts\Activate.ps1
-```
-
-On macOS / Linux:
-
-```bash
-source .venv/bin/activate
-```
-
-Install dependencies:
-
-```bash
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-If you are using a CUDA-capable GPU, install the PyTorch / torchvision build that matches your CUDA version first, using the command from the official PyTorch installation selector. Then install the remaining dependencies:
-
-```bash
-python -m pip install -r requirements.txt
-```
-
-On Windows, the geospatial stack is often more reliable through conda-forge. In that case, create or activate a conda environment and install the GIS packages from conda-forge before installing the remaining Python packages:
-
-```bash
-conda install -c conda-forge rasterio shapely geopandas
-python -m pip install -r requirements.txt
-```
-
-CUDA note: if `pip install -r requirements.txt` installs a CPU-only PyTorch build, reinstall PyTorch and torchvision with the CUDA wheel recommended for your system, then rerun the requirements command if needed.
-
-Check that Python can import the main libraries:
-
-```bash
-python -c "import torch, cv2, albumentations, segmentation_models_pytorch; print('torch:', torch.__version__); print('cuda available:', torch.cuda.is_available())"
-```
-
-## Configuration
-
-Most project defaults are kept in:
-
-```text
-configs/default.json
-```
-
-The config stores the main data paths, tiling settings, model architecture, encoder, training settings, evaluation settings, inference threshold, tile size, stride, vector export settings, and output directories. Training reads these values from JSON only; experiment YAML files override the base JSON through `scripts/run_experiments.py`.
-
-For example, this uses the default config:
-
-```bash
-python src/train.py
-```
-
-To use another config file:
-
-```bash
-python src/train.py --config configs/my_experiment.json
-```
-
-## Quickstart
-
-The scripts assume the raw dataset is available under:
-
-```text
-data/AerialImageDataset/
-```
-
-Prepare 256 x 256 tiles:
-
-```bash
+```powershell
+conda activate cv
 python scripts/prepare_tiles.py --config configs/default.json
 ```
 
-Train a model:
+Run the Phase 1 no-augmentation screening:
 
-```bash
-python src/train.py --config configs/default.json
+```powershell
+conda activate cv
+python scripts/run_experiments.py --experiments_config configs/experiments_phase1_noaug_baseline.yaml
 ```
 
-Run full-image validation evaluation for model selection and ablations:
+Run the Phase 2 augmented boundary-loss comparison:
 
-```bash
-python src/evaluate.py --config configs/default.json --split val
+```powershell
+conda activate cv
+python scripts/run_experiments.py --experiments_config configs/experiments_phase2_augmentation_boundary_loss.yaml
 ```
 
-Run final held-out full-image test evaluation:
+Evaluate the selected model on full validation images:
 
-```bash
-python src/evaluate.py --config configs/default.json --split test
+```powershell
+conda activate cv
+python src/evaluate.py --config configs/generated/phase2_augmentation/phase2_unet_effb3_aug_boundary_bce_w2_e50.json --split val
 ```
 
-Run a batch of experiments from a YAML file:
+Evaluate the selected model on held-out full test images:
 
-```bash
-python scripts/run_experiments.py \
-  --experiments_config configs/experiments_phase2_augmentation.yaml
+```powershell
+conda activate cv
+python src/evaluate.py --config configs/generated/phase2_augmentation/phase2_unet_effb3_aug_boundary_bce_w2_e50.json --split test
 ```
 
-Preview the generated commands without starting training:
+Run full-image inference and polygon export:
 
-```bash
-python scripts/run_experiments.py \
-  --experiments_config configs/experiments_phase1_noaug_baseline.yaml \
-  --dry_run
+```powershell
+conda activate cv
+python scripts/predict_full_image.py --config configs/generated/phase2_augmentation/phase2_unet_effb3_aug_boundary_bce_w2_e50.json --image_path data/AerialImageDataset/train/images/austin1.tif --model_path models/phase2_augmentation/phase2_unet_effb3_aug_boundary_bce_w2_e50.pth --output_name austin1_phase2_unet_effb3_aug_boundary_bce_w2_e50
 ```
 
-Run full-image tiled inference:
-
-```bash
-python scripts/predict_full_image.py \
-  --config configs/default.json \
-  --image_path data/AerialImageDataset/test/images/example.tif \
-  --model_path models/unet_effb3_256_noaug_e10.pth
-```
-
-This writes raster-style prediction outputs, a showcase crop, a polygon overlay, and GIS vector outputs:
+Prediction outputs are written to `results/full_predictions/` by default:
 
 ```text
-outputs/full_predictions/
-  <name>_prob.npy
-  <name>_prob.png
-  <name>_mask.png
-  <name>_clean_mask.png
-  <name>_polygons_overlay.png
-  <name>_showcase_crop.png
-  <name>_buildings.geojson
-  <name>_buildings.gpkg
+<name>_prob.npy
+<name>_prob.png
+<name>_mask.png
+<name>_clean_mask.png
+<name>_polygons_overlay.png
+<name>_showcase_crop.png
+<name>_buildings.geojson
 ```
 
-The GeoJSON and GeoPackage files use the input raster's transform and CRS through `rasterio`, `shapely`, and `geopandas`. Vector area filtering expects a projected CRS so polygon areas are measured in linear CRS units, such as square meters. If the source raster uses a geographic CRS, the export raises an error before applying `vector_min_area`; reproject first, set `--vector_min_area 0`, or use `--allow_geographic_area` only when square-degree area filtering is intentional.
+GeoJSON export uses the source raster transform and CRS. Area filtering expects a projected CRS. If a raster is in a geographic CRS, either reproject it first, set `--vector_min_area 0`, or pass `--allow_geographic_area` only when square-degree area filtering is intentional.
 
-Vector export can be disabled with:
+## Presentation Materials
 
-```bash
-python scripts/predict_full_image.py \
-  --config configs/default.json \
-  --image_path data/AerialImageDataset/test/images/example.tif \
-  --no_export_vectors
-```
+Presentation material is grouped under `docs/presentation/`:
+
+- `thesis_presentation_source.md` is the source deck text.
+- `from_aerial_segmentation_to_gis_footprints.pptx` is the current deck.
+- `assets/` contains the images used in the slides.
+- `scripts/asset_generation/` contains the scripts used to build slide assets.
+- `builds/` contains generated presentation build outputs.
 
 ## Current Limitations
 
-- Phase 2 experiment and visualization defaults are config-driven, but the next results table has not been populated yet.
-- The geospatial vector export is CRS-aware and guards against accidental area filtering in geographic CRS, but polygon boundaries still need quality improvements before being treated as production-grade footprints.
-- The current experiment table only covers the no-augmentation baseline.
-
-## Next Phases
-
-1. Run standard geometric augmentation experiments with the three best-performing baseline models.
-2. Improve validation reporting with plots, qualitative examples, and clearer comparison tables.
-3. Improve vectorization / polygonization, including cleaner polygon boundaries and geospatial export.
-4. Add smoke tests for config loading, tiling, post-processing, and vector export.
-
-## Status
-
-WIP. The core segmentation workflow is in place, but the repository is still being shaped into a more reproducible and GIS-ready project.
+- The segmentation results are strong enough for thesis reporting, but the vectorized polygons still need quality analysis before being described as production-ready GIS footprints.
+- The current best full-image evaluation uses threshold `0.5`, postprocess `min_area=500`, and morphological opening kernel size `5`.
+- Heavy local artifacts are preserved in `results/`, but ignored by git to keep the repository lightweight.
 
 ## License
 

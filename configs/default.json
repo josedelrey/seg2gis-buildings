@@ -33,7 +33,7 @@
     "lr": 0.0001,
     "augmentation": false,
     "seed": 42,
-    "experiment_log_path": "results/experiments_inria155.csv"
+    "experiment_log_path": "results/tables/experiments_inria155.csv"
   },
   "loss": {
     "name": "dice_bce",
@@ -55,7 +55,7 @@
     "threshold": 0.5,
     "tile_size": 256,
     "stride": 128,
-    "out_dir": "outputs/full_predictions",
+    "out_dir": "results/full_predictions",
     "output_name": null,
     "min_area": 500,
     "open_kernel_size": 5,

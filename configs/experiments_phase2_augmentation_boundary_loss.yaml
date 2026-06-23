@@ -5,8 +5,8 @@ defaults:
   batch_size: 8
   lr: 0.0001
   seed: 42
-  model_dir: models/preview_night
-  experiment_log_path: results/preview_night_training.csv
+  model_dir: models/phase2_augmentation
+  experiment_log_path: results/tables/phase2_augmentation_training_metrics.csv
   eval_threshold: 0.5
   eval_tile_size: 256
   eval_stride: 128
@@ -17,25 +17,25 @@ defaults:
   loss_boundary_width: 3
 
 experiments:
-  - run_name: preview_unet_effb3_256_aug_dice_bce_e50
+  - run_name: phase2_unet_effb3_aug_dice_bce_e50
     architecture: unet
     encoder: efficientnet-b3
     loss_name: dice_bce
     loss_boundary_weight: 0.0
 
-  - run_name: preview_unet_effb3_256_aug_boundary_bce_w2_e50
+  - run_name: phase2_unet_effb3_aug_boundary_bce_w2_e50
     architecture: unet
     encoder: efficientnet-b3
     loss_name: dice_boundary_bce
     loss_boundary_weight: 2.0
 
-  - run_name: preview_fpn_effb3_256_aug_boundary_bce_w2_e50
+  - run_name: phase2_fpn_effb3_aug_boundary_bce_w2_e50
     architecture: fpn
     encoder: efficientnet-b3
     loss_name: dice_boundary_bce
     loss_boundary_weight: 2.0
 
-  - run_name: preview_dlv3p_effb3_256_aug_boundary_bce_w2_e50
+  - run_name: phase2_dlv3p_effb3_aug_boundary_bce_w2_e50
     architecture: deeplabv3plus
     encoder: efficientnet-b3
     loss_name: dice_boundary_bce
