@@ -24,6 +24,7 @@ env/
 
 # Large generated outputs
 outputs/
+results/cache/
 results/full_predictions/
 results/qualitative/
 docs/

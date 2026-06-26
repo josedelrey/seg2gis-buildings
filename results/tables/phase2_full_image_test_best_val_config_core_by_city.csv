@@ -1,0 +1,7 @@
+run_name,architecture,encoder,protocol,split,city,image_ids,n_images,threshold,tile_size,stride,min_area,open_kernel_size,iou_building,dice_f1,precision,recall,accuracy,tp,fp,fn,tn
+phase2_unet_effb3_aug_boundary_bce_w2_e50,unet,efficientnet-b3,inria155_public_holdout_internal_val,test,austin,"1,2,3,4,5",5,0.47,256,128,100,3,0.8277,0.9057,0.9147,0.8969,0.9751,14957059,1394931,1718585,106929425
+phase2_unet_effb3_aug_boundary_bce_w2_e50,unet,efficientnet-b3,inria155_public_holdout_internal_val,test,chicago,"1,2,3,4,5",5,0.47,256,128,100,3,0.7432,0.8527,0.8441,0.8614,0.9397,21815463,4028754,3509300,95646483
+phase2_unet_effb3_aug_boundary_bce_w2_e50,unet,efficientnet-b3,inria155_public_holdout_internal_val,test,kitsap,"1,2,3,4,5",5,0.47,256,128,100,3,0.7068,0.8282,0.8949,0.7708,0.9936,1933091,226923,574859,122265127
+phase2_unet_effb3_aug_boundary_bce_w2_e50,unet,efficientnet-b3,inria155_public_holdout_internal_val,test,tyrol-w,"1,2,3,4,5",5,0.47,256,128,100,3,0.8256,0.9044,0.9144,0.8947,0.9863,8104937,758408,954253,115182402
+phase2_unet_effb3_aug_boundary_bce_w2_e50,unet,efficientnet-b3,inria155_public_holdout_internal_val,test,vienna,"1,2,3,4,5",5,0.47,256,128,100,3,0.8397,0.9128,0.9256,0.9004,0.9551,29383984,2362619,3248779,90004618
+phase2_unet_effb3_aug_boundary_bce_w2_e50,unet,efficientnet-b3,inria155_public_holdout_internal_val,test,ALL,"1,2,3,4,5",25,0.47,256,128,100,3,0.8023,0.8903,0.8968,0.8839,0.97,76194534,8771635,10005776,530028055

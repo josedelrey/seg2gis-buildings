@@ -38,6 +38,29 @@ Per-city Dice/F1 for the selected model:
 | Vienna | 0.9213 | 0.9084 |
 | ALL | 0.8899 | 0.8812 |
 
+## Vector Quality
+
+Basic vector-quality metrics are reported for the validation-selected
+post-processing configuration: threshold `0.47`, minimum component area `100`,
+opening kernel size `3`, and polygon simplification epsilon ratio `0.002`.
+
+| Split | Predicted polygons | GT components | Invalid polygon ratio | Mean vertices | Pred/GT area | Boundary F1 @2 raw | Boundary F1 @2 post | Polygon-raster IoU |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Validation | 21,642 | 28,420 | 0.0060 | 41.29 | 1.0020 | 0.6456 | 0.6463 | 0.7602 |
+| Test | 25,564 | 32,794 | 0.0054 | 41.40 | 0.9857 | 0.6525 | 0.6531 | 0.7736 |
+
+## Component-Level Instance AP
+
+Because the INRIA labels are semantic masks rather than official instance
+annotations, instance-style AP is computed from connected components in the GT
+and predicted masks. Predicted component confidence is the mean probability
+inside each component.
+
+| Split | GT components | Predicted components | AP50 | AP75 | mAP@50:95 | AR50 | Precision50 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Validation | 28,420 | 21,856 | 0.5602 | 0.3455 | 0.3304 | 0.6032 | 0.7843 |
+| Test | 32,794 | 25,663 | 0.6021 | 0.3826 | 0.3622 | 0.6363 | 0.8132 |
+
 ## Result Files
 
 All CSV result tables are now in `results/tables/`:
@@ -50,6 +73,10 @@ All CSV result tables are now in `results/tables/`:
 | `phase2_augmentation_training_metrics.csv` | Augmented 50-epoch runs comparing Dice+BCE vs boundary-weighted BCE. Best tuned validation Dice: 0.8890. |
 | `phase2_full_image_validation_metrics_by_city.csv` | Full-image validation metrics for the selected Phase 2 model by city and overall. |
 | `phase2_full_image_test_metrics_by_city.csv` | Held-out full-image test metrics for the selected Phase 2 model by city and overall. |
+| `vector_quality_validation_best_val_config_by_city.csv` | Validation-set vector-quality metrics for the selected model and validation-selected post-processing configuration. |
+| `vector_quality_test_best_val_config_by_city.csv` | Held-out test vector-quality metrics for the selected model and validation-selected post-processing configuration. |
+| `instance_ap_validation_best_val_config_by_city.csv` | Validation-set component-level AP metrics derived from connected components. |
+| `instance_ap_test_best_val_config_by_city.csv` | Held-out test component-level AP metrics derived from connected components. |
 
 Figures used in the README live in `results/figures/`. Larger generated artifacts, such as tiled prediction grids and full-image probability maps, live under `results/qualitative/` and `results/full_predictions/`; those folders are ignored by git because they are large generated outputs.
 
@@ -221,6 +248,20 @@ Evaluate the selected model on held-out full test images:
 ```powershell
 conda activate cv
 python src/evaluate.py --config configs/generated/phase2_augmentation/phase2_unet_effb3_aug_boundary_bce_w2_e50.json --split test
+```
+
+Generate vector-quality metrics for the validation-selected post-processing configuration:
+
+```powershell
+conda activate cv
+python scripts/vector_quality_table.py --config configs/generated/phase2_augmentation/phase2_unet_effb3_aug_boundary_bce_w2_e50.json --split test --threshold 0.47 --min_area 100 --open_kernel_size 3
+```
+
+Generate component-level instance AP metrics for the validation-selected post-processing configuration:
+
+```powershell
+conda activate cv
+python scripts/instance_ap_table.py --config configs/generated/phase2_augmentation/phase2_unet_effb3_aug_boundary_bce_w2_e50.json --split test --threshold 0.47 --min_area 100 --open_kernel_size 3
 ```
 
 Run full-image inference and polygon export:

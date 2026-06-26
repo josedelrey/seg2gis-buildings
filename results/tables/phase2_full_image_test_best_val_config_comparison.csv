@@ -1,0 +1,7 @@
+city,current_config,best_val_config,current_iou_building,best_val_iou_building,delta_iou_building,current_dice_f1,best_val_dice_f1,delta_dice_f1,current_precision,best_val_precision,delta_precision,current_recall,best_val_recall,delta_recall,current_accuracy,best_val_accuracy,delta_accuracy
+austin,"threshold=0.50,min_area=500,open_kernel_size=5","threshold=0.47,min_area=100,open_kernel_size=3",0.8169,0.8277,0.0108,0.8992,0.9057,0.0065,0.9248,0.9147,-0.0101,0.875,0.8969,0.0219,0.9738,0.9751,0.0013
+chicago,"threshold=0.50,min_area=500,open_kernel_size=5","threshold=0.47,min_area=100,open_kernel_size=3",0.7137,0.7432,0.0295,0.8329,0.8527,0.0198,0.8552,0.8441,-0.0111,0.8117,0.8614,0.0497,0.934,0.9397,0.0057
+kitsap,"threshold=0.50,min_area=500,open_kernel_size=5","threshold=0.47,min_area=100,open_kernel_size=3",0.7018,0.7068,0.005,0.8248,0.8282,0.0034,0.9036,0.8949,-0.0087,0.7586,0.7708,0.0122,0.9935,0.9936,0.0001
+tyrol-w,"threshold=0.50,min_area=500,open_kernel_size=5","threshold=0.47,min_area=100,open_kernel_size=3",0.8172,0.8256,0.0084,0.8994,0.9044,0.005,0.925,0.9144,-0.0106,0.8752,0.8947,0.0195,0.9858,0.9863,0.0005
+vienna,"threshold=0.50,min_area=500,open_kernel_size=5","threshold=0.47,min_area=100,open_kernel_size=3",0.8322,0.8397,0.0075,0.9084,0.9128,0.0044,0.9316,0.9256,-0.006,0.8863,0.9004,0.0141,0.9533,0.9551,0.0018
+ALL,"threshold=0.50,min_area=500,open_kernel_size=5","threshold=0.47,min_area=100,open_kernel_size=3",0.7876,0.8023,0.0147,0.8812,0.8903,0.0091,0.9064,0.8968,-0.0096,0.8573,0.8839,0.0266,0.9681,0.97,0.0019
